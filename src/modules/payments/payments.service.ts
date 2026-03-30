@@ -10,10 +10,12 @@ import { ConfigService } from '@nestjs/config';
 import { PayOS, Webhook, WebhookData } from '@payos/node';
 import { PaymentStatus } from '@/enums/payment.enum';
 import { Users } from '@/entities/users.entity';
+import { Subject, takeUntil, timer } from 'rxjs';
 
 @Injectable()
 export class PaymentsService {
 	private payos: PayOS;
+	private sseSubjects = new Map<number, Subject<MessageEvent>>();
 
 	constructor(
 		@InjectRepository(PaymentOrder) private orderRepo: Repository<PaymentOrder>,
@@ -29,6 +31,26 @@ export class PaymentsService {
 			apiKey: this.configService.get('PAYOS_API_KEY'),
 			checksumKey: this.configService.get('PAYOS_CHECKSUM_KEY'),
 		});
+	}
+
+	createSseStream(orderCode: number) {
+		if (this.sseSubjects.has(orderCode)) {
+			this.sseSubjects.get(orderCode).complete;
+			this.sseSubjects.delete(orderCode);
+		}
+		const subject = new Subject<MessageEvent>();
+		this.sseSubjects.set(orderCode, subject);
+		return subject.asObservable().pipe(takeUntil(timer(10 * 60 * 1000)));
+	}
+
+	private notifySse(orderCode: number, status: string) {
+		const subject = this.sseSubjects.get(orderCode);
+		if (!subject) {
+			return;
+		}
+		subject.next({ data: { status } } as MessageEvent);
+		subject.complete();
+		this.sseSubjects.delete(orderCode);
 	}
 
 	async create(userId: number, createPaymentDto: CreatePaymentDto) {
@@ -60,6 +82,7 @@ export class PaymentsService {
 		return {
 			checkoutUrl: paymentLink.checkoutUrl,
 			qrCode: paymentLink.qrCode,
+			orderCode,
 		};
 	}
 
@@ -84,8 +107,10 @@ export class PaymentsService {
 			await this.orderRepo.save(order);
 			await this.activateSubscription(order);
 			await this.usageLimitService.invalidatePlanCache(order.user.id);
+			this.notifySse(order.orderCode, 'PAID');
 		} else if (code !== '00' && order.status === PaymentStatus.PENDING) {
 			order.status = PaymentStatus.CANCELLED;
+			this.notifySse(order.orderCode, 'CANCELLED');
 			await this.orderRepo.save(order);
 		}
 
@@ -96,16 +121,25 @@ export class PaymentsService {
 		const now = new Date();
 
 		let subscription = await this.subscriptionRepo.findOne({
-			where: { user: { id: order.user.id } },
+			where: { user: { id: order.user.id }, isActive: true },
+			relations: ['plan'],
 		});
 
 		if (subscription) {
-			const base = subscription.endDate > now ? subscription.endDate : now;
-			const newEnd = new Date(base);
-			newEnd.setDate(newEnd.getDate() + order.plan.duration);
-			subscription.plan = order.plan;
+			const isSamePlan = subscription.plan.id === order.plan.id;
+			if (isSamePlan) {
+				const base = subscription.endDate > now ? subscription.endDate : now;
+				const newEnd = new Date(base);
+				newEnd.setDate(newEnd.getDate() + order.plan.duration);
+				subscription.endDate = newEnd;
+			} else {
+				const newEnd = new Date(now);
+				newEnd.setDate(newEnd.getDate() + order.plan.duration);
+				subscription.plan = order.plan;
+				subscription.startDate = now;
+				subscription.endDate = newEnd;
+			}
 			subscription.order = order;
-			subscription.endDate = newEnd;
 			subscription.isActive = true;
 		} else {
 			const endDate = new Date(now);
@@ -170,5 +204,17 @@ export class PaymentsService {
 			message: 'Get All Payment Methods success',
 			data: data,
 		};
+	}
+
+	async update(userId: number, orderCode: number, status: PaymentStatus) {
+		const order = await this.orderRepo.findOne({
+			where: { orderCode, user: { id: userId } },
+			relations: ['user', 'plan'],
+		});
+		if (!order) throw new NotFoundException('Order not found');
+
+		order.status = status;
+		await this.orderRepo.save(order);
+		this.notifySse(order.orderCode, status);
 	}
 }
