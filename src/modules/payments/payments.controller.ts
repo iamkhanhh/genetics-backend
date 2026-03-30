@@ -1,9 +1,20 @@
-import { Controller, Get, Post, Body, Param, Request } from '@nestjs/common';
+import {
+	Controller,
+	Get,
+	Post,
+	Body,
+	Param,
+	Request,
+	Sse,
+	Patch,
+} from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Public } from '@/decorators';
 import { Webhook } from '@payos/node';
+import { Observable } from 'rxjs';
+import { PaymentStatus } from '@/enums/payment.enum';
 
 @ApiTags('payments')
 @Controller('payments')
@@ -24,7 +35,6 @@ export class PaymentsController {
 		return this.paymentsService.create(req.user.id, createPaymentDto);
 	}
 
-	@Public()
 	@Post('webhook')
 	@ApiOperation({
 		summary: 'Receive webhook from PayOS',
@@ -36,20 +46,13 @@ export class PaymentsController {
 		return this.paymentsService.handleWebhook(webhookBody);
 	}
 
-	@Get('status/:orderCode')
-	@ApiOperation({
-		summary: 'Check order status',
-		description: 'Used for polling after displaying QR code',
-	})
-	@ApiParam({
-		name: 'orderCode',
-		example: 1743200000000123,
-		description: 'Order code',
-	})
-	@ApiResponse({ status: 200, description: 'Returns order information' })
-	@ApiResponse({ status: 404, description: 'Order not found' })
-	getOrderStatus(@Param('orderCode') orderCode: string) {
-		return this.paymentsService.getOrderStatus(+orderCode);
+	@Get('stream/:orderCode')
+	@Sse()
+	@ApiOperation({ summary: 'SSE stream trạng thái đơn hàng' })
+	streamOrderStatus(
+		@Param('orderCode') orderCode: string,
+	): Observable<MessageEvent> {
+		return this.paymentsService.createSseStream(+orderCode);
 	}
 
 	@Get('subscription')
@@ -82,5 +85,17 @@ export class PaymentsController {
 	@ApiResponse({ status: 200, description: 'List of payment methods' })
 	getAllPaymentMethods(@Request() req) {
 		return this.paymentsService.getAllPaymentMethods(req.user.id);
+	}
+
+	@Patch(':orderCode')
+	@ApiOperation({ summary: 'Update order status' })
+	@ApiResponse({ status: 200, description: 'Order updated successfully' })
+	@ApiResponse({ status: 404, description: 'Order not found' })
+	updateOrderStatus(
+		@Param('orderCode') orderCode: string,
+		@Body('status') status: PaymentStatus,
+		@Request() req,
+	) {
+		return this.paymentsService.update(req.user.id, +orderCode, status);
 	}
 }
