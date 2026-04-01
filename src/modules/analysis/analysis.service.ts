@@ -559,8 +559,11 @@ export class AnalysisService {
 			}
 		}
 
-		// let destination = `${this.configService.get<string>('ANALYSIS_FOLDER')}/${data.user_id}/${data.id}/analysis.anno`;
-		// await this.analysisRepository.update({ id: analyses[0].id }, { file_path: destination });
+		const destination = `${this.configService.get<string>('ANALYSIS_FOLDER')}/${data.user_id}/${data.id}/analysis.fastq.vcf.gz`;
+		await this.analysisRepository.update(
+			{ id: analyses[0].id },
+			{ file_path: destination },
+		);
 
 		return data;
 	}
