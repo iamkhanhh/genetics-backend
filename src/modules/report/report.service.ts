@@ -15,6 +15,7 @@ import { PatientsInformationService } from '../patient-information/patient-infor
 import {
 	IPgxData,
 	IPgxReportData,
+	IPgxTemplateData,
 	IReportData,
 	ReportTemplateData,
 	ReportVariantData,
@@ -388,7 +389,7 @@ export class ReportService {
 			.sort((a, b) => (a.drug > b.drug ? 1 : a.drug < b.drug ? -1 : 0));
 
 		return {
-			pgxData: resultList.slice(0, 25),
+			pgxData: resultList,
 			categories: categories,
 		};
 	}
@@ -431,5 +432,102 @@ export class ReportService {
 		}
 
 		return result;
+	}
+
+	async createPgxReport(analysisId: number, userId: number) {
+		const { pgxData, categories } = await this.getReportData(analysisId);
+
+		const patientResult =
+			await this.patientsInformationService.findOne(analysisId);
+		const patient = patientResult.data;
+
+		const analysisResult = await this.analysisService.findOne(analysisId);
+		const analysis = analysisResult.data;
+
+		const groups = categories.map((cat) => ({
+			drug_response_category: cat,
+			rows: pgxData.filter((item) => item.drug_response_category === cat),
+		}));
+
+		const templateData: IPgxTemplateData = {
+			patient_no: `GE-${patient.id}`,
+			patient_name: `${patient.first_name} ${patient.last_name}`,
+			dob: dayjs(patient.dob).format('DD/MM/YYYY'),
+			gender: patient.gender,
+			ethnicity: patient.ethnicity,
+			physician_name: 'N/A',
+			specimen: patient.sample_type,
+			received_date: dayjs(analysis.createdAt).format('DD/MM/YYYY'),
+			prepared_by: 'TLU GENETICS',
+			report_date: dayjs(new Date()).format('DD/MM/YYYY'),
+			groups,
+		};
+		const { fileName } = await this.generatePgxReportFile(
+			templateData,
+			userId,
+			analysisId,
+		);
+
+		const report = this.reportRepository.create({
+			report_name: `PGx_Report_${dayjs(new Date()).format('YYYYMMDD_HHmmss')}`,
+			analysis_id: analysisId,
+			user_created: userId,
+			file_path: fileName,
+			is_deleted: 0,
+		});
+
+		const downloadUrl = await this.s3Provider.generateDownloadUrl(
+			`${this.configService.get('ANALYSIS_FOLDER')}/${userId}/${analysis.id}/reports/${fileName}`,
+		);
+		await this.reportRepository.save(report);
+
+		return {
+			status: 'success',
+			message: 'PGx report created successfully',
+			data: {
+				...report,
+				downloadUrl,
+			},
+		};
+	}
+
+	private async generatePgxReportFile(
+		data: IPgxTemplateData,
+		user_id: number,
+		analysis_id: number,
+	) {
+		const templatePath = path.resolve(
+			process.cwd(),
+			'src/modules/report/templates/genetics_Pgx_template.docx',
+		);
+
+		if (!fs.existsSync(templatePath)) {
+			throw new BadRequestException('PGx report template not found');
+		}
+
+		const content = fs.readFileSync(templatePath);
+		const zip = new PizZip(content);
+		const doc = new Docxtemplater(zip, {
+			paragraphLoop: true,
+			linebreaks: true,
+		});
+
+		try {
+			doc.render(data);
+		} catch (error) {
+			throw new BadRequestException('Error rendering PGx report template');
+		}
+
+		const buffer = doc.getZip().generate({ type: 'nodebuffer' });
+		const fileName = `pgx_report_${Date.now()}.docx`;
+		const outputPath = `${this.configService.get('MOUNT_FOLDER')}/${this.configService.get('ANALYSIS_FOLDER')}/${user_id}/${analysis_id}/reports/${fileName}`;
+
+		if (!fs.existsSync(path.dirname(outputPath))) {
+			fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+		}
+
+		fs.writeFileSync(outputPath, new Uint8Array(buffer));
+
+		return { fileName, filePath: outputPath };
 	}
 }

@@ -35,7 +35,7 @@ export class PaymentsService {
 
 	createSseStream(orderCode: number) {
 		if (this.sseSubjects.has(orderCode)) {
-			this.sseSubjects.get(orderCode).complete;
+			this.sseSubjects.get(orderCode).complete();
 			this.sseSubjects.delete(orderCode);
 		}
 		const subject = new Subject<MessageEvent>();
@@ -107,10 +107,10 @@ export class PaymentsService {
 			await this.orderRepo.save(order);
 			await this.activateSubscription(order);
 			await this.usageLimitService.invalidatePlanCache(order.user.id);
-			this.notifySse(order.orderCode, 'PAID');
+			this.notifySse(+order.orderCode, 'PAID');
 		} else if (code !== '00' && order.status === PaymentStatus.PENDING) {
 			order.status = PaymentStatus.CANCELLED;
-			this.notifySse(order.orderCode, 'CANCELLED');
+			this.notifySse(+order.orderCode, 'CANCELLED');
 			await this.orderRepo.save(order);
 		}
 

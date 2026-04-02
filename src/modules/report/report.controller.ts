@@ -64,4 +64,9 @@ export class ReportController {
 	remove(@Request() req, @Param('id') id: string) {
 		return this.reportService.delete(req.user.id, +id);
 	}
+
+	@Post('pgx/:analysisId')
+	createPgx(@Param('analysisId') analysisId: string, @Request() req) {
+		return this.reportService.createPgxReport(+analysisId, req.user.id);
+	}
 }

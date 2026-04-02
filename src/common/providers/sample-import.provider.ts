@@ -1,5 +1,5 @@
 import { Analysis } from '@/entities';
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,6 +9,7 @@ import { CommonProvider } from './common.provider';
 import { ConfigService } from '@nestjs/config';
 import * as dayjs from 'dayjs';
 import { AnalysisGateway } from '../gateways/analysis.gateway';
+import { ReportService } from '@/modules/report/report.service';
 
 @Injectable()
 export class SampleImportProvider {
@@ -21,6 +22,8 @@ export class SampleImportProvider {
 		private readonly commonProvider: CommonProvider,
 		private readonly configService: ConfigService,
 		private readonly analysisGateway: AnalysisGateway,
+		@Inject(forwardRef(() => ReportService))
+		private readonly reportService: ReportService,
 	) {}
 
 	@Cron(CronExpression.EVERY_30_SECONDS)
@@ -125,6 +128,7 @@ export class SampleImportProvider {
 					variants: variants,
 				},
 			);
+			await this.reportService.createPgxReport(analysis.id, analysis.user_id);
 			return this.analysisGateway.sendAnalysisStatusUpdate({
 				id: analysis.id,
 				status: Analysis.getAnalysisStatus(AnalysisStatus.ANALYZED),

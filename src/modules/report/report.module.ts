@@ -6,7 +6,6 @@ import { Genes, PGx, Report } from '@/entities';
 import { VariantsModule } from '../variants/variants.module';
 import { PatientInformationModule } from '../patient-information/patient-information.module';
 import { AnalysisModule } from '../analysis/analysis.module';
-import { CommonModule } from '@/common/common.module';
 import { ChatbotModule } from '../chatbot/chatbot.module';
 
 @Module({
@@ -15,10 +14,10 @@ import { ChatbotModule } from '../chatbot/chatbot.module';
 		VariantsModule,
 		AnalysisModule,
 		PatientInformationModule,
-		CommonModule,
 		ChatbotModule,
 	],
 	controllers: [ReportController],
 	providers: [ReportService],
+	exports: [ReportService],
 })
 export class ReportModule {}

@@ -3,15 +3,10 @@ import { VariantsService } from './variants.service';
 import { VariantsController } from './variants.controller';
 import { GeneClinicalSynopsis } from '@/entities';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CommonModule } from '@/common/common.module';
 import { AnalysisModule } from '../analysis/analysis.module';
 
 @Module({
-	imports: [
-		TypeOrmModule.forFeature([GeneClinicalSynopsis]),
-		CommonModule,
-		AnalysisModule,
-	],
+	imports: [TypeOrmModule.forFeature([GeneClinicalSynopsis]), AnalysisModule],
 	controllers: [VariantsController],
 	providers: [VariantsService],
 	exports: [VariantsService],

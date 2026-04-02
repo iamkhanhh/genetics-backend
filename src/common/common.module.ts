@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { forwardRef, Global, Module } from '@nestjs/common';
 import { PaginationProvider } from './providers/pagination.provider';
 import { HashingPasswordProvider } from './providers/hashing-password.provider';
 import { S3Provider } from './providers/s3.provider';
@@ -14,6 +14,7 @@ import { UserSubscription } from '@/entities/user-subscription.entity';
 import { UsageLimitService } from './services/usage-limit.service';
 import { UsageLimitGuard } from '@/auth/passport/usage-limit.guard';
 import { RedisModule } from '@/redis/redis.module';
+import { ReportModule } from '@/modules/report/report.module';
 @Global()
 @Module({
 	imports: [
@@ -23,6 +24,7 @@ import { RedisModule } from '@/redis/redis.module';
 			maxRedirects: 5,
 		}),
 		RedisModule,
+		forwardRef(() => ReportModule),
 	],
 	providers: [
 		PaginationProvider,
