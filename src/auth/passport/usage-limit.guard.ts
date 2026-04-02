@@ -28,6 +28,7 @@ export class UsageLimitGuard implements CanActivate {
 		const request = context.switchToHttp().getRequest();
 		const userId: number = request.user?.id;
 		if (!userId) return true;
+		if (request.user?.role === 'Admin') return true;
 
 		const requiredFeature = this.reflector.get<PlanFeature>(
 			REQUIRES_FEATURE_KEY,
@@ -41,7 +42,6 @@ export class UsageLimitGuard implements CanActivate {
 					: requiredFeature === 'report'
 						? (await planlimits).data.canUseReport
 						: true;
-			console.log(allowed);
 			if (!allowed) {
 				throw new ForbiddenException(
 					`Your current plan does not include this feature. Please upgrade to Standard or Premium.`,

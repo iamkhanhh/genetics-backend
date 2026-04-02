@@ -35,6 +35,7 @@ export class PaymentsController {
 		return this.paymentsService.create(req.user.id, createPaymentDto);
 	}
 
+	@Public()
 	@Post('webhook')
 	@ApiOperation({
 		summary: 'Receive webhook from PayOS',
@@ -46,8 +47,7 @@ export class PaymentsController {
 		return this.paymentsService.handleWebhook(webhookBody);
 	}
 
-	@Get('stream/:orderCode')
-	@Sse()
+	@Sse('stream/:orderCode')
 	@ApiOperation({ summary: 'SSE stream trạng thái đơn hàng' })
 	streamOrderStatus(
 		@Param('orderCode') orderCode: string,
