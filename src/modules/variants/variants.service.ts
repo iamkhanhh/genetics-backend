@@ -386,6 +386,8 @@ export class VariantsService {
 			HGNC_SYMONYMS: '$HGNC_SYMONYMS',
 			HGNC_PRE_SYMBOL: '$HGNC_PRE_SYMBOL',
 			VAR_SCORE: '$VAR_SCORE',
+			HGVSc: '$varHGVSc',
+			HGVSp: '$varHGVSp',
 		};
 	}
 
