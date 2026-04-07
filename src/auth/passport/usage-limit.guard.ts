@@ -30,9 +30,9 @@ export class UsageLimitGuard implements CanActivate {
 		if (!userId) return true;
 		if (request.user?.role === 'Admin') return true;
 
-		const requiredFeature = this.reflector.get<PlanFeature>(
+		const requiredFeature = this.reflector.getAllAndOverride<PlanFeature>(
 			REQUIRES_FEATURE_KEY,
-			context.getHandler(),
+			[context.getHandler(), context.getClass()],
 		);
 		if (requiredFeature) {
 			const planlimits = await this.usageLimitService.getUserPlanLimits(userId);
