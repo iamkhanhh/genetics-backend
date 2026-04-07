@@ -215,6 +215,23 @@ export class PaymentsService {
 
 		order.status = status;
 		await this.orderRepo.save(order);
-		this.notifySse(order.orderCode, status);
+		this.notifySse(+order.orderCode, status);
+	}
+
+	async triggerPayment(userId: number, orderCode: number) {
+		const order = await this.orderRepo.findOne({
+			where: { orderCode, user: { id: userId } },
+			relations: ['user', 'plan'],
+		});
+		if (!order) throw new NotFoundException('Order not found');
+
+		if (order.status !== PaymentStatus.PAID) {
+			order.status = PaymentStatus.PAID;
+			order.paidAt = new Date();
+			await this.orderRepo.save(order);
+			await this.activateSubscription(order);
+			await this.usageLimitService.invalidatePlanCache(order.user.id);
+		}
+		this.notifySse(+order.orderCode, 'PAID');
 	}
 }

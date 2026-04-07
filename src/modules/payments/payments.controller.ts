@@ -98,4 +98,12 @@ export class PaymentsController {
 	) {
 		return this.paymentsService.update(req.user.id, +orderCode, status);
 	}
+
+	@Post('trigger-payment/:orderCode')
+	@ApiOperation({ summary: 'Trigger a payment' })
+	@ApiResponse({ status: 200, description: 'Payment triggered successfully' })
+	@ApiResponse({ status: 404, description: 'Order not found' })
+	triggerPayment(@Param('orderCode') orderCode: string, @Request() req) {
+		return this.paymentsService.triggerPayment(req.user.id, +orderCode);
+	}
 }
