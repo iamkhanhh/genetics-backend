@@ -3,7 +3,7 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SubscriptionPlan } from '@/entities/subscription-plan.entity';
 import { PaymentOrder } from '@/entities/payment-order.entity';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { UserSubscription } from '@/entities/user-subscription.entity';
 import { UsageLimitService } from '@/common/services/usage-limit.service';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +11,7 @@ import { PayOS, Webhook, WebhookData } from '@payos/node';
 import { PaymentStatus } from '@/enums/payment.enum';
 import { Users } from '@/entities/users.entity';
 import { Subject, takeUntil, timer } from 'rxjs';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class PaymentsService {
@@ -31,6 +32,25 @@ export class PaymentsService {
 			apiKey: this.configService.get('PAYOS_API_KEY'),
 			checksumKey: this.configService.get('PAYOS_CHECKSUM_KEY'),
 		});
+	}
+
+	@Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+	async deactivateExpiredSubscriptions() {
+		const expired = await this.subscriptionRepo.find({
+			where: {
+				isActive: true,
+				endDate: LessThan(new Date()),
+			},
+			relations: ['user'],
+		});
+
+		if (expired.length === 0) return;
+
+		for (const subscription of expired) {
+			subscription.isActive = false;
+			await this.subscriptionRepo.save(subscription);
+			await this.usageLimitService.invalidatePlanCache(subscription.user.id);
+		}
 	}
 
 	createSseStream(orderCode: number) {
