@@ -198,7 +198,21 @@ export class PaymentsService {
 		return {
 			status: 'success',
 			message: 'Get UserSubscription success',
-			data: data,
+			data: data ?? {
+				plan: {
+					planType: 'BASIC',
+					name: 'Basic',
+					price: 0,
+					duration: null,
+					dailyUploadLimit: 3,
+					dailyAnalysisLimit: 3,
+					features: [],
+					isActive: true,
+				},
+				startDate: null,
+				endDate: null,
+				isActive: true,
+			},
 		};
 	}
 
