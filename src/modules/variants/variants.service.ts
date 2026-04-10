@@ -2,12 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { FilterVariantsDto } from './dto/filter-variants.dto';
 import { ConfigService } from '@nestjs/config';
 import { MongodbProvider } from '@/common/providers/mongodb.provider';
+import { CacheProvider } from '@/common/providers/cache.provider';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { GeneClinicalSynopsis } from '@/entities';
 import { AnalysisService } from '../analysis/analysis.service';
 import { AddVariantsToReport } from './dto/add-variants-to-report.dto';
 import { VariantToReportDto } from './dto/variant-to-report.dto';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class VariantsService {
@@ -17,6 +19,7 @@ export class VariantsService {
 		private readonly configService: ConfigService,
 		private readonly mongodbProvider: MongodbProvider,
 		private readonly analysisServive: AnalysisService,
+		private readonly cacheProvider: CacheProvider,
 	) {}
 
 	async findOne(
@@ -25,144 +28,176 @@ export class VariantsService {
 		pageSize: number,
 		filter: FilterVariantsDto,
 	) {
-		const offset = (page - 1) * pageSize;
-		const pageBegin = offset + 1;
-		const pageEnd = pageBegin + pageSize - 1;
+		const filterHash = createHash('md5')
+			.update(JSON.stringify(filter))
+			.digest('hex')
+			.slice(0, 8);
+		const cacheKey = `variants:${id}:p${page}:ps${pageSize}:${filterHash}`;
+		const ttlSeconds = 30 * 60;
 
-		const db = await this.mongodbProvider.mongodbConnect();
-		const collection = db.collection(
-			`${this.configService.get<string>('MONGO_DB_PREFIX')}_${id}`,
-		);
-		if (!collection) {
-			return {
-				status: 'error',
-				message: 'Collection not found',
-				data: [],
-			};
-		}
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttlSeconds,
+			async () => {
+				const offset = (page - 1) * pageSize;
+				const pageBegin = offset + 1;
+				const pageEnd = pageBegin + pageSize - 1;
 
-		const pipeline = [];
-		const pipeCount = [];
-		const matchAnd = this.matchFilter(filter);
+				const db = await this.mongodbProvider.mongodbConnect();
+				const collection = db.collection(
+					`${this.configService.get<string>('MONGO_DB_PREFIX')}_${id}`,
+				);
+				if (!collection) {
+					throw new BadRequestException('Collection not found');
+				}
+				console.log('');
+				const pipeline = [];
+				const pipeCount = [];
+				const matchAnd = this.matchFilter(filter);
 
-		if (matchAnd.length > 0) {
-			const match = { $match: { $and: matchAnd } };
-			pipeline.push(match);
-			pipeCount.push(match);
-		}
+				console.log(
+					'[VARIANTS] Calling matchFilter with:',
+					JSON.stringify(filter),
+				);
+				console.log('[VARIANTS] matchAnd result:', JSON.stringify(matchAnd));
 
-		pipeline.push({
-			$addFields: {
-				clinsigPriority: this.makeClinsigPriority(),
+				if (matchAnd.length > 0) {
+					const match = { $match: { $and: matchAnd } };
+					pipeline.push(match);
+					pipeCount.push(match);
+					console.log('[VARIANTS] Added $match to pipeline');
+				} else {
+					console.log(
+						'[VARIANTS] WARNING: matchAnd is empty, returning ALL variants!',
+					);
+				}
+
+				pipeline.push({
+					$addFields: {
+						clinsigPriority: this.makeClinsigPriority(),
+					},
+				});
+				pipeline.push({ $sort: { clinsigPriority: 1 } });
+				pipeline.push({ $skip: offset });
+				pipeline.push({ $limit: pageSize });
+				pipeline.push({ $project: this.projectFields() });
+				pipeCount.push({ $group: { _id: null, count: { $sum: 1 } } });
+
+				const [data, count] = await Promise.all([
+					collection.aggregate(pipeline, { allowDiskUse: true }).toArray(),
+					collection.aggregate(pipeCount, { allowDiskUse: true }).toArray(),
+				]);
+
+				console.log(
+					`[VARIANTS] Query results: ${data.length} variants found (total: ${count[0]?.count || 0})`,
+				);
+
+				for (const item of data) {
+					const omim = await this.getOmimDiseaseForGeneName(item.gene);
+					item.omimDisease = omim?.pheno_name || null;
+					item.gene_omim = omim?.gene_omim || null;
+				}
+
+				return {
+					data,
+					totalItems: count[0]?.count || 0,
+					totalPages: Math.ceil((count[0]?.count || 0) / pageSize),
+					pageBegin,
+					pageEnd,
+				};
 			},
-		});
-		pipeline.push({ $sort: { clinsigPriority: 1 } });
-		pipeline.push({ $skip: offset });
-		pipeline.push({ $limit: pageSize });
-		pipeline.push({ $project: this.projectFields() });
-		pipeCount.push({ $group: { _id: null, count: { $sum: 1 } } });
-
-		const [data, count] = await Promise.all([
-			collection.aggregate(pipeline, { allowDiskUse: true }).toArray(),
-			collection.aggregate(pipeCount, { allowDiskUse: true }).toArray(),
-		]);
-
-		for (const item of data) {
-			const omim = await this.getOmimDiseaseForGeneName(item.gene);
-			item.omimDisease = omim?.pheno_name || null;
-			item.gene_omim = omim?.gene_omim || null;
-		}
-
-		// await this.mongodbProvider.mongodbDisconnect();
-
+		);
 		return {
 			status: 'success',
 			message: 'Get variants successfully',
-			data: data,
-			totalItems: count[0]?.count || 0,
-			totalPages: Math.ceil((count[0]?.count || 0) / pageSize),
-			pageBegin,
-			pageEnd,
+			...cached,
 		};
 	}
 
 	async getVariantsSelected(id: number) {
-		const chrom_pos_ref_alt_arr = [];
-		const temp = await this.analysisServive.findOne(id);
-		if (temp.status != 'success') {
-			throw new BadRequestException('Failed to fetch analysis');
-		}
-		const analysis = temp.data;
+		const data = await this.cacheProvider.getOrSet(
+			`variants:selected:${id}`,
+			30 * 60,
+			async () => {
+				const chrom_pos_ref_alt_arr = [];
+				const temp = await this.analysisServive.findOne(id);
+				if (temp.status != 'success') {
+					throw new BadRequestException('Failed to fetch analysis');
+				}
+				const analysis = temp.data;
 
-		const variantToReport = analysis.variants_to_report
-			? JSON.parse(analysis.variants_to_report)
-			: [];
+				const variantToReport = analysis.variants_to_report
+					? JSON.parse(analysis.variants_to_report)
+					: [];
 
-		for (const i in variantToReport) {
-			const chrom_pos_ref_alt_analysis =
-				variantToReport[i].chrom +
-				'_' +
-				variantToReport[i].pos +
-				'_' +
-				variantToReport[i].ref +
-				'_' +
-				variantToReport[i].alt +
-				'_' +
-				variantToReport[i].gene;
-			chrom_pos_ref_alt_arr.push(chrom_pos_ref_alt_analysis);
-		}
+				for (const i in variantToReport) {
+					const chrom_pos_ref_alt_analysis =
+						variantToReport[i].chrom +
+						'_' +
+						variantToReport[i].pos +
+						'_' +
+						variantToReport[i].ref +
+						'_' +
+						variantToReport[i].alt +
+						'_' +
+						variantToReport[i].gene;
+					chrom_pos_ref_alt_arr.push(chrom_pos_ref_alt_analysis);
+				}
 
-		const db = await this.mongodbProvider.mongodbConnect();
-		const collection = db.collection(
-			`${this.configService.get<string>('MONGO_DB_PREFIX')}_${id}`,
-		);
-		if (!collection) {
-			return {
-				status: 'error',
-				message: 'Collection not found',
-				data: [],
-			};
-		}
+				const db = await this.mongodbProvider.mongodbConnect();
+				const collection = db.collection(
+					`${this.configService.get<string>('MONGO_DB_PREFIX')}_${id}`,
+				);
+				if (!collection) {
+					return {
+						status: 'error',
+						message: 'Collection not found',
+						data: [],
+					};
+				}
 
-		const pipeline = [];
-		const matchAnd = [];
+				const pipeline = [];
+				const matchAnd = [];
 
-		matchAnd.push({ chrom_pos_ref_alt_gene: { $in: chrom_pos_ref_alt_arr } });
-		const match = { $match: { $and: matchAnd } };
-		pipeline.push(match);
+				matchAnd.push({
+					chrom_pos_ref_alt_gene: { $in: chrom_pos_ref_alt_arr },
+				});
+				const match = { $match: { $and: matchAnd } };
+				pipeline.push(match);
 
-		pipeline.push({
-			$project: {
-				_id: '$_id',
-				id: '$chrom_pos_ref_alt_gene',
-				gene: '$gene',
-				transcript_id: '$transcript',
-				position: '$inputPos',
-				chrom: '$chrom',
-				rsid: '$rsId',
-				REF: '$REF',
-				ALT: '$ALT',
-				cnomen: '$cNomen',
-				pnomen: '$pNomen',
-				function: '$codingEffect',
-				location: '$varLocation',
-				coverage: '$coverage',
-				gnomad: '$gnomAD_exome_ALL',
-				cosmicID: '$cosmicIds',
-				classification: '$CLINSIG_FINAL',
-				clinvar: '$Clinvar_VARIANT_ID',
-				gnomAD_AFR: '$gnomAD_exome_AFR',
-				gnomAD_AMR: '$gnomAD_exome_AMR',
-				inheritance: '$inheritance',
+				pipeline.push({
+					$project: {
+						_id: '$_id',
+						id: '$chrom_pos_ref_alt_gene',
+						gene: '$gene',
+						transcript_id: '$transcript',
+						position: '$inputPos',
+						chrom: '$chrom',
+						rsid: '$rsId',
+						REF: '$REF',
+						ALT: '$ALT',
+						cnomen: '$cNomen',
+						pnomen: '$pNomen',
+						function: '$codingEffect',
+						location: '$varLocation',
+						coverage: '$coverage',
+						gnomad: '$gnomAD_exome_ALL',
+						cosmicID: '$cosmicIds',
+						classification: '$CLINSIG_FINAL',
+						clinvar: '$Clinvar_VARIANT_ID',
+						gnomAD_AFR: '$gnomAD_exome_AFR',
+						gnomAD_AMR: '$gnomAD_exome_AMR',
+						inheritance: '$inheritance',
+					},
+				});
+
+				const [result] = await Promise.all([
+					collection.aggregate(pipeline, { allowDiskUse: true }).toArray(),
+				]);
+
+				return result;
 			},
-		});
-
-		const [data] = await Promise.all([
-			collection.aggregate(pipeline, { allowDiskUse: true }).toArray(),
-		]);
-
-		// await this.mongodbProvider.mongodbDisconnect();
-
+		);
 		return {
 			status: 'success',
 			message: 'Get selected variants successfully',
@@ -215,6 +250,10 @@ export class VariantsService {
 		}
 		const arr = newVariantToReport.concat(variantToReport);
 		await this.analysisServive.updateVariantsSelected(id, arr);
+
+		await this.cacheProvider.del(`variants:selected:${id}`);
+		await this.cacheProvider.delByPattern(`variants:${id}:*`);
+
 		return {
 			status: 'success',
 			message: 'Add variants to report successfully',
@@ -238,7 +277,14 @@ export class VariantsService {
 		// }
 
 		if (filter?.chrom?.length) {
-			matchAnd.push({ chrom: { $in: filter.chrom } });
+			const chromNumbers = filter.chrom.map((c) => {
+				const num = parseInt(c, 10);
+				return isNaN(num) ? c : num;
+			});
+			console.log(
+				`[VARIANTS] Filter chrom: ${filter.chrom} converted to ${chromNumbers}`,
+			);
+			matchAnd.push({ chrom: { $in: chromNumbers } });
 		}
 
 		if (filter?.gene?.length) {
@@ -392,35 +438,40 @@ export class VariantsService {
 	}
 
 	async getOmimDiseaseForGeneName(geneName: string) {
-		try {
-			const results = await this.geneClinicalSynopsisRepository
-				.createQueryBuilder('gene')
-				.select([
-					'gene.gene_name AS gene_name',
-					'gene.gene_omim AS gene_omim',
-					'GROUP_CONCAT(gene.pheno_name) AS pheno_name',
-				])
-				.where('gene.gene_name = :geneName', { geneName })
-				.groupBy('gene.gene_name, gene.gene_omim')
-				.getRawOne();
+		const cacheKey = `omim:gene:${geneName}`;
+		const ttlSeconds = 7 * 24 * 60 * 60; // 7 ngày (data OMIM tĩnh)
 
-			if (results && results.pheno_name) {
+		return this.cacheProvider.getOrSet(cacheKey, ttlSeconds, async () => {
+			try {
+				const results = await this.geneClinicalSynopsisRepository
+					.createQueryBuilder('gene')
+					.select([
+						'gene.gene_name AS gene_name',
+						'gene.gene_omim AS gene_omim',
+						'GROUP_CONCAT(gene.pheno_name) AS pheno_name',
+					])
+					.where('gene.gene_name = :geneName', { geneName })
+					.groupBy('gene.gene_name, gene.gene_omim')
+					.getRawOne();
+
+				if (results && results.pheno_name) {
+					return {
+						pheno_name: results.pheno_name,
+						gene_omim: results.gene_omim,
+					};
+				}
+
 				return {
-					pheno_name: results.pheno_name,
-					gene_omim: results.gene_omim,
+					pheno_name: '',
+					gene_omim: '',
 				};
+			} catch (error) {
+				console.log('VariantsService@getOmimDiseaseForGeneName:', error);
+				throw new BadRequestException(
+					'Unable to connect to the database, please try again later!',
+				);
 			}
-
-			return {
-				pheno_name: '',
-				gene_omim: '',
-			};
-		} catch (error) {
-			console.log('VariantsService@getOmimDiseaseForGeneName:', error);
-			throw new BadRequestException(
-				'Unable to connect to the database, please try again later!',
-			);
-		}
+		});
 	}
 
 	async deleteSelectedVariant(id: number, variant: VariantToReportDto) {
@@ -461,6 +512,9 @@ export class VariantsService {
 			}
 
 			await this.analysisServive.updateVariantsSelected(id, newVariantToReport);
+
+			await this.cacheProvider.del(`variants:selected:${id}`);
+			await this.cacheProvider.delByPattern(`variants:${id}:*`);
 
 			return {
 				status: 'success',

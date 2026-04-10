@@ -15,6 +15,7 @@ import { UsageLimitService } from './services/usage-limit.service';
 import { UsageLimitGuard } from '@/auth/passport/usage-limit.guard';
 import { RedisModule } from '@/redis/redis.module';
 import { ReportModule } from '@/modules/report/report.module';
+import { CacheProvider } from './providers/cache.provider';
 @Global()
 @Module({
 	imports: [
@@ -37,6 +38,7 @@ import { ReportModule } from '@/modules/report/report.module';
 		HttpProvider,
 		UsageLimitService,
 		UsageLimitGuard,
+		CacheProvider,
 	],
 	exports: [
 		PaginationProvider,
@@ -48,6 +50,7 @@ import { ReportModule } from '@/modules/report/report.module';
 		HttpProvider,
 		UsageLimitService,
 		UsageLimitGuard,
+		CacheProvider,
 	],
 })
 export class CommonModule {}

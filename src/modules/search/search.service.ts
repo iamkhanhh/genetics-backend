@@ -6,6 +6,7 @@ import { GlobalSearchDto } from './dto/global-search.dto';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import * as dayjs from 'dayjs';
 import { HttpProvider } from '@/common/providers/http.provider';
+import { CacheProvider } from '@/common/providers/cache.provider';
 
 @Injectable()
 export class SearchService {
@@ -18,6 +19,7 @@ export class SearchService {
 		private analysisRepository: Repository<Analysis>,
 		private readonly pipelinesService: PipelinesService,
 		private readonly httpProvider: HttpProvider,
+		private readonly cacheProvider: CacheProvider,
 	) {}
 
 	async globalSearch(
@@ -157,6 +159,17 @@ export class SearchService {
 	}
 
 	async searchReferences(pmid: string) {
+		const cached = await this.cacheProvider.get<any[]>(
+			`search:ref:pmid:${pmid}`,
+		);
+		if (cached) {
+			return {
+				status: 'success',
+				message: 'References found successfully',
+				data: cached,
+			};
+		}
+
 		const response = await this.httpProvider.searchReferences(pmid);
 		const pubmedList = [];
 
@@ -166,22 +179,28 @@ export class SearchService {
 				message: 'No references found for the given PMID',
 				data: pubmedList,
 			};
-		} else {
-			const ids = response.result.uids;
-			for (const i in ids) {
-				const authors = [];
-				for (const m in response.result[ids[i]].authors) {
-					authors.push(response.result[ids[i]].authors[m].name);
-				}
-				pubmedList.push({
-					id: response.result[ids[i]].uid,
-					date: response.result[ids[i]].pubdate,
-					source: response.result[ids[i]].source,
-					title: response.result[ids[i]].title,
-					authors: authors,
-				});
-			}
 		}
+
+		const ids = response.result.uids;
+		for (const i in ids) {
+			const authors = [];
+			for (const m in response.result[ids[i]].authors) {
+				authors.push(response.result[ids[i]].authors[m].name);
+			}
+			pubmedList.push({
+				id: response.result[ids[i]].uid,
+				date: response.result[ids[i]].pubdate,
+				source: response.result[ids[i]].source,
+				title: response.result[ids[i]].title,
+				authors: authors,
+			});
+		}
+
+		await this.cacheProvider.set(
+			`search:ref:pmid:${pmid}`,
+			pubmedList,
+			24 * 60 * 60,
+		);
 
 		return {
 			status: 'success',

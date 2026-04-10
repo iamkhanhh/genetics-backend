@@ -12,6 +12,7 @@ import { In, Like, Repository } from 'typeorm';
 import * as dayjs from 'dayjs';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import { PaginationProvider } from '@/common/providers/pagination.provider';
+import { CacheProvider } from '@/common/providers/cache.provider';
 import { AnalysisStatus } from '@/enums';
 import { UploadsService } from '../uploads/uploads.service';
 import { ConfigService } from '@nestjs/config';
@@ -40,6 +41,7 @@ export class AnalysisService {
 		private readonly configService: ConfigService,
 		private readonly s3Provider: S3Provider,
 		private readonly analysisGateway: AnalysisGateway,
+		private readonly cacheProvider: CacheProvider,
 	) {}
 
 	async create(createAnalysisDto: CreateAnalysisDto, user_id: number) {
@@ -89,6 +91,13 @@ export class AnalysisService {
 			number: workspace.data.number++,
 		});
 
+		await Promise.all([
+			this.cacheProvider.delByPattern(`analysis:list:user:${user_id}:*`),
+			this.cacheProvider.delByPattern(
+				`analysis:byws:${createAnalysisDto.project_id}:user:${user_id}:*`,
+			),
+		]);
+
 		return {
 			status: 'success',
 			message: 'Create analysis successfully',
@@ -101,162 +110,215 @@ export class AnalysisService {
 		pageSize: number,
 		filterAnalysisDto: FilterAnalysisDto,
 	) {
-		const filters: any = {
-			user_id: user_id,
-			is_deleted: 0,
-		};
+		const filterHash = createHash('md5')
+			.update(JSON.stringify(filterAnalysisDto))
+			.digest('hex')
+			.slice(0, 8);
+		const cacheKey = `analysis:list:user:${user_id}:p${page}:ps${pageSize}:${filterHash}`;
 
-		if (filterAnalysisDto.status != '') {
-			const statusMap = {
-				queuing: [AnalysisStatus.QUEUING, AnalysisStatus.FASTQ_QUEUING],
-				analyzing: [
-					AnalysisStatus.ANALYZING,
-					AnalysisStatus.FASTQ_ANALYZING,
-					AnalysisStatus.VEP_ANALYZED,
-					AnalysisStatus.IMPORTING,
-				],
-				analyzed: [AnalysisStatus.ANALYZED],
-				error: [AnalysisStatus.ERROR, AnalysisStatus.FASTQ_ERROR],
-			};
-
-			const statuses = statusMap[filterAnalysisDto.status.toLowerCase()];
-			if (statuses) {
-				filters.status = In(statuses);
-			}
-		}
-		if (filterAnalysisDto.assembly != '') {
-			filters.assembly = filterAnalysisDto.assembly;
-		}
-		if (filterAnalysisDto.analysisName != '') {
-			filters.name = Like(`%${filterAnalysisDto.analysisName}%`);
-		}
-
-		const results = await this.paginationProvider.paginate(
-			page,
-			pageSize,
-			this.analysisRepository,
-			filters,
-		);
-
-		const data = await Promise.all(
-			results.data.map(async (analysis) => {
-				const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
-				const analyzed = analysis.analyzed
-					? dayjs(analysis.analyzed).format('DD/MM/YYYY')
-					: '';
-				const workspaceName = await this.workspacesService.getWorkspaceName(
-					analysis.project_id,
-				);
-				return {
-					id: analysis.id,
-					name: analysis.name,
-					workspaceName: workspaceName ? workspaceName.data : '',
-					createdAt: createdAt,
-					analyzed: analyzed,
-					variants: analysis.variants,
-					assembly: analysis.assembly,
-					status: Analysis.getAnalysisStatus(analysis.status),
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			2 * 60,
+			async () => {
+				const filters: any = {
+					user_id: user_id,
+					is_deleted: 0,
 				};
-			}),
-		);
 
-		return {
-			...results,
-			data,
-			message: 'List all analyses successfully!',
-		};
+				if (filterAnalysisDto.status != '') {
+					const statusMap = {
+						queuing: [AnalysisStatus.QUEUING, AnalysisStatus.FASTQ_QUEUING],
+						analyzing: [
+							AnalysisStatus.ANALYZING,
+							AnalysisStatus.FASTQ_ANALYZING,
+							AnalysisStatus.VEP_ANALYZED,
+							AnalysisStatus.IMPORTING,
+						],
+						analyzed: [AnalysisStatus.ANALYZED],
+						error: [AnalysisStatus.ERROR, AnalysisStatus.FASTQ_ERROR],
+					};
+
+					const statuses = statusMap[filterAnalysisDto.status.toLowerCase()];
+					if (statuses) {
+						filters.status = In(statuses);
+					}
+				}
+				if (filterAnalysisDto.assembly != '') {
+					filters.assembly = filterAnalysisDto.assembly;
+				}
+				if (filterAnalysisDto.analysisName != '') {
+					filters.name = Like(`%${filterAnalysisDto.analysisName}%`);
+				}
+
+				const results = await this.paginationProvider.paginate(
+					page,
+					pageSize,
+					this.analysisRepository,
+					filters,
+				);
+
+				const data = await Promise.all(
+					results.data.map(async (analysis) => {
+						const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
+						const analyzed = analysis.analyzed
+							? dayjs(analysis.analyzed).format('DD/MM/YYYY')
+							: '';
+						const workspaceName = await this.workspacesService.getWorkspaceName(
+							analysis.project_id,
+						);
+						return {
+							id: analysis.id,
+							name: analysis.name,
+							workspaceName: workspaceName ? workspaceName.data : '',
+							createdAt: createdAt,
+							analyzed: analyzed,
+							variants: analysis.variants,
+							assembly: analysis.assembly,
+							status: Analysis.getAnalysisStatus(analysis.status),
+						};
+					}),
+				);
+
+				return { ...results, data };
+			},
+		);
+		return { ...cached, message: 'List all analyses successfully!' };
 	}
 
 	async findOne(id: number) {
-		const analysis = await this.analysisRepository.findOne({ where: { id } });
-		if (!analysis) {
-			throw new BadRequestException('That analysis could not be found');
-		}
-		const sample = await this.samplesService.findOne(analysis.sample_id);
-
+		const data = await this.cacheProvider.getOrSet(
+			`analysis:${id}`,
+			2 * 60,
+			async () => {
+				const analysis = await this.analysisRepository.findOne({
+					where: { id },
+				});
+				if (!analysis) {
+					throw new BadRequestException('That analysis could not be found');
+				}
+				const sample = await this.samplesService.findOne(analysis.sample_id);
+				return { ...analysis, sampleName: sample.data.name };
+			},
+		);
 		return {
 			status: 'success',
 			message: 'got analysis successfully!',
-			data: {
-				...analysis,
-				sampleName: sample.data.name,
-			},
+			data,
 		};
 	}
 
 	async getTotal(user_id: number) {
-		const analyses = await this.analysisRepository.find({
-			where: { user_id: user_id, is_deleted: 0 },
-		});
-		return analyses.length;
+		//
+		const cacheKey = `analysis:total:user:${user_id}`;
+		const ttl = 5 * 60;
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttl,
+			async () => {
+				const analyses = await this.analysisRepository.find({
+					where: { user_id: user_id, is_deleted: 0 },
+				});
+				return analyses.length;
+			},
+		);
+		return cached;
 	}
 
 	async getAnalysesStatistics(user_id: number, lastSixMonthsNumbers: number[]) {
-		const data = [];
+		const cacheKey = `analysis:stats:user:${user_id}:months:${lastSixMonthsNumbers.join(',')}`;
+		const ttl = 5 * 60;
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttl,
+			async () => {
+				const data = [];
 
-		const now = new Date();
-		const currentYear = now.getFullYear();
-		const currentMonth = now.getMonth() + 1;
+				const now = new Date();
+				const currentYear = now.getFullYear();
+				const currentMonth = now.getMonth() + 1;
+				for (const month of lastSixMonthsNumbers) {
+					const year = month > currentMonth ? currentYear - 1 : currentYear;
 
-		for (const month of lastSixMonthsNumbers) {
-			const year = month > currentMonth ? currentYear - 1 : currentYear;
+					const results = await this.analysisRepository
+						.createQueryBuilder('analysis')
+						.where('MONTH(analysis.createdAt) = :month', { month })
+						.andWhere('YEAR(analysis.createdAt) = :year', { year })
+						.andWhere('analysis.user_id = :user_id', { user_id })
+						.getMany();
 
-			const results = await this.analysisRepository
-				.createQueryBuilder('analysis')
-				.where('MONTH(analysis.createdAt) = :month', { month })
-				.andWhere('YEAR(analysis.createdAt) = :year', { year })
-				.andWhere('analysis.user_id = :user_id', { user_id })
-				.getMany();
-
-			data.push(results.length);
-		}
-
-		return data;
+					data.push(results.length);
+				}
+				return data;
+			},
+		);
+		return cached;
 	}
 
 	async getRecentAnalyses(user_id: number) {
-		const analyses = await this.analysisRepository.find({
-			where: { user_id: user_id, is_deleted: 0 },
-			order: { createdAt: 'DESC' },
-			take: 10,
-		});
-
-		const data = await Promise.all(
-			analyses.map(async (analysis) => {
-				const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
-				const analyzed = analysis.analyzed
-					? dayjs(analysis.analyzed).format('DD/MM/YYYY')
-					: '';
-				const workspaceName = await this.workspacesService.getWorkspaceName(
-					analysis.project_id,
+		const cacheKey = `analysis:recent:user:${user_id}`;
+		const ttl = 5 * 60;
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttl,
+			async () => {
+				const analyses = await this.analysisRepository.find({
+					where: { user_id: user_id, is_deleted: 0 },
+					order: { createdAt: 'DESC' },
+					take: 10,
+				});
+				const data = await Promise.all(
+					analyses.map(async (analysis) => {
+						const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
+						const analyzed = analysis.analyzed
+							? dayjs(analysis.analyzed).format('DD/MM/YYYY')
+							: '';
+						const workspaceName = await this.workspacesService.getWorkspaceName(
+							analysis.project_id,
+						);
+						return {
+							id: analysis.id,
+							name: analysis.name,
+							workspaceName: workspaceName ? workspaceName.data : '',
+							createdAt: createdAt,
+							analyzed: analyzed,
+							variants: analysis.variants,
+							assembly: analysis.assembly,
+							status: Analysis.getAnalysisStatus(analysis.status),
+						};
+					}),
 				);
-				return {
-					id: analysis.id,
-					name: analysis.name,
-					workspaceName: workspaceName ? workspaceName.data : '',
-					createdAt: createdAt,
-					analyzed: analyzed,
-					variants: analysis.variants,
-					assembly: analysis.assembly,
-					status: Analysis.getAnalysisStatus(analysis.status),
-				};
-			}),
+				return data;
+			},
 		);
-
-		return data;
+		return cached;
 	}
 
 	async getGeneDetail(getGeneDetailDto: GetGeneDetailDto) {
 		try {
-			const gene = await this.genesRepository.findOne({
-				where: { name: getGeneDetailDto.geneName },
-			});
+			const cacheKey = `gene:detail:${getGeneDetailDto.geneName}`;
+			const ttlSeconds = 604800;
 
-			const geneInfo = {
-				synonyms: gene.name,
-				full_name: gene ? gene.full_name : '',
-				function: gene ? gene.summary : '',
-			};
+			const geneInfo = await this.cacheProvider.getOrSet(
+				cacheKey,
+				ttlSeconds,
+				async () => {
+					const gene = await this.genesRepository.findOne({
+						where: { name: getGeneDetailDto.geneName },
+					});
+
+					if (!gene) {
+						throw new BadRequestException(
+							`Gene ${getGeneDetailDto.geneName} not found`,
+						);
+					}
+
+					return {
+						synonyms: gene.name,
+						full_name: gene.full_name || '',
+						function: gene.summary || '',
+					};
+				},
+			);
 
 			return {
 				status: 'success',
@@ -264,8 +326,6 @@ export class AnalysisService {
 				data: geneInfo,
 			};
 		} catch (error) {
-			console.log('AnalysisService@getGeneDetail: ', error);
-
 			return { status: 'error' };
 		}
 	}
@@ -277,80 +337,90 @@ export class AnalysisService {
 		pageSize: number,
 		filterAnalysisDto: FilterAnalysisDto,
 	) {
-		const filters: any = {
-			project_id: workspace_id,
-			user_id: user_id,
-			is_deleted: 0,
-		};
+		const filterHash = createHash('md5')
+			.update(JSON.stringify(filterAnalysisDto))
+			.digest('hex')
+			.slice(0, 8);
+		const cacheKey = `analysis:byws:${workspace_id}:user:${user_id}:p${page}:ps${pageSize}:${filterHash}`;
 
-		if (filterAnalysisDto.status != '') {
-			const statusMap = {
-				queuing: [AnalysisStatus.QUEUING, AnalysisStatus.FASTQ_QUEUING],
-				analyzing: [
-					AnalysisStatus.ANALYZING,
-					AnalysisStatus.FASTQ_ANALYZING,
-					AnalysisStatus.VEP_ANALYZED,
-					AnalysisStatus.IMPORTING,
-				],
-				analyzed: [AnalysisStatus.ANALYZED],
-				error: [AnalysisStatus.ERROR, AnalysisStatus.FASTQ_ERROR],
-			};
-
-			const statuses = statusMap[filterAnalysisDto.status.toLowerCase()];
-			if (statuses) {
-				filters.status = In(statuses);
-			}
-		}
-		if (filterAnalysisDto.assembly != '') {
-			filters.assembly = filterAnalysisDto.assembly;
-		}
-		if (filterAnalysisDto.analysisName != '') {
-			filters.name = Like(`%${filterAnalysisDto.analysisName}%`);
-		}
-		if (filterAnalysisDto.sampleName != '') {
-			const temp = await this.samplesService.getSamplesBySampleName(
-				filterAnalysisDto.sampleName,
-			);
-			filters.sample_id = In(temp);
-		}
-
-		const results = await this.paginationProvider.paginate(
-			page,
-			pageSize,
-			this.analysisRepository,
-			filters,
-		);
-
-		const data = await Promise.all(
-			results.data.map(async (analysis) => {
-				const pipeline_name = await this.pipelinesService.getPipelineNameFromId(
-					analysis.pipeline_id,
-				);
-				const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
-				const updatedAt = dayjs(analysis.updatedAt).format('DD/MM/YYYY');
-				const analyzed = analysis.analyzed
-					? dayjs(analysis.analyzed).format('DD/MM/YYYY')
-					: '';
-				return {
-					id: analysis.id,
-					name: analysis.name,
-					pipeline_name: pipeline_name,
-					createdAt: createdAt,
-					updatedAt: updatedAt,
-					analyzed: analyzed,
-					variants: analysis.variants,
-					assembly: analysis.assembly,
-					sequencing_type: analysis.sequencing_type,
-					status: Analysis.getAnalysisStatus(analysis.status),
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			2 * 60,
+			async () => {
+				const filters: any = {
+					project_id: workspace_id,
+					user_id: user_id,
+					is_deleted: 0,
 				};
-			}),
-		);
 
-		return {
-			...results,
-			data,
-			message: 'List all analyses successfully!',
-		};
+				if (filterAnalysisDto.status != '') {
+					const statusMap = {
+						queuing: [AnalysisStatus.QUEUING, AnalysisStatus.FASTQ_QUEUING],
+						analyzing: [
+							AnalysisStatus.ANALYZING,
+							AnalysisStatus.FASTQ_ANALYZING,
+							AnalysisStatus.VEP_ANALYZED,
+							AnalysisStatus.IMPORTING,
+						],
+						analyzed: [AnalysisStatus.ANALYZED],
+						error: [AnalysisStatus.ERROR, AnalysisStatus.FASTQ_ERROR],
+					};
+
+					const statuses = statusMap[filterAnalysisDto.status.toLowerCase()];
+					if (statuses) {
+						filters.status = In(statuses);
+					}
+				}
+				if (filterAnalysisDto.assembly != '') {
+					filters.assembly = filterAnalysisDto.assembly;
+				}
+				if (filterAnalysisDto.analysisName != '') {
+					filters.name = Like(`%${filterAnalysisDto.analysisName}%`);
+				}
+				if (filterAnalysisDto.sampleName != '') {
+					const temp = await this.samplesService.getSamplesBySampleName(
+						filterAnalysisDto.sampleName,
+					);
+					filters.sample_id = In(temp);
+				}
+
+				const results = await this.paginationProvider.paginate(
+					page,
+					pageSize,
+					this.analysisRepository,
+					filters,
+				);
+
+				const data = await Promise.all(
+					results.data.map(async (analysis) => {
+						const pipeline_name =
+							await this.pipelinesService.getPipelineNameFromId(
+								analysis.pipeline_id,
+							);
+						const createdAt = dayjs(analysis.createdAt).format('DD/MM/YYYY');
+						const updatedAt = dayjs(analysis.updatedAt).format('DD/MM/YYYY');
+						const analyzed = analysis.analyzed
+							? dayjs(analysis.analyzed).format('DD/MM/YYYY')
+							: '';
+						return {
+							id: analysis.id,
+							name: analysis.name,
+							pipeline_name: pipeline_name,
+							createdAt: createdAt,
+							updatedAt: updatedAt,
+							analyzed: analyzed,
+							variants: analysis.variants,
+							assembly: analysis.assembly,
+							sequencing_type: analysis.sequencing_type,
+							status: Analysis.getAnalysisStatus(analysis.status),
+						};
+					}),
+				);
+
+				return { ...results, data };
+			},
+		);
+		return { ...cached, message: 'List all analyses successfully!' };
 	}
 
 	async deleteAnalysesByWorkspaceId(workspace_id: number) {
@@ -366,7 +436,15 @@ export class AnalysisService {
 			throw new BadRequestException('That analysis could not be found');
 		}
 		await this.analysisRepository.update({ id }, { ...updateAnalysisDto });
-
+		await Promise.all([
+			this.cacheProvider.del(`analysis:${id}`),
+			this.cacheProvider.delByPattern(
+				`analysis:list:user:${analysis.user_id}:*`,
+			),
+			this.cacheProvider.delByPattern(
+				`analysis:byws:${analysis.project_id}:user:${analysis.user_id}:*`,
+			),
+		]);
 		return {
 			status: 'success',
 			message: 'Updated successfully!',
@@ -433,13 +511,11 @@ export class AnalysisService {
 
 	getIgvLink(uri, client_ip) {
 		if (!uri || !client_ip) {
-			console.log('AnalysisService@getIgvLink: IP address undefined');
 			return undefined;
 		}
 
 		const url = this.configService.get<string>('IGV_HOST');
 		if (url == '') {
-			console.log('AnalysisService@getIgvLink: IGV host undefined');
 			return undefined;
 		}
 
@@ -482,6 +558,7 @@ export class AnalysisService {
 			{ id },
 			{ variants_to_report: JSON.stringify(arr) },
 		);
+		await this.cacheProvider.del(`variants:selected:${id}`);
 
 		return {
 			status: 'success',
@@ -495,6 +572,15 @@ export class AnalysisService {
 			throw new BadRequestException('That analysis could not be found');
 		}
 		await this.analysisRepository.update({ id }, { is_deleted: 1 });
+		await Promise.all([
+			this.cacheProvider.del(`analysis:${id}`),
+			this.cacheProvider.delByPattern(
+				`analysis:list:user:${analysis.user_id}:*`,
+			),
+			this.cacheProvider.delByPattern(
+				`analysis:byws:${analysis.project_id}:user:${analysis.user_id}:*`,
+			),
+		]);
 		return {
 			status: 'success',
 			message: 'Deleted successfully!',
@@ -575,14 +661,12 @@ export class AnalysisService {
 		if (!analysis) {
 			throw new BadRequestException('That analysis could not be found');
 		}
-
 		if (status === AnalysisStatus.ANALYZED) {
 			analysis.analyzed = new Date();
 		}
-
 		analysis.status = status;
 		await this.analysisRepository.save(analysis);
-
+		await this.cacheProvider.del(`analysis:${analysisId}`);
 		this.analysisGateway.sendAnalysisStatusUpdate({
 			id: analysis.id,
 			status: Analysis.getAnalysisStatus(analysis.status),

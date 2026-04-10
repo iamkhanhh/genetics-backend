@@ -6,6 +6,7 @@ import { AnalysisService } from '../analysis/analysis.service';
 import { HashingPasswordProvider } from '@/common/providers/hashing-password.provider';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { SamplesService } from '../samples/samples.service';
+import { CacheProvider } from '@/common/providers/cache.provider';
 
 @Injectable()
 export class AccountService {
@@ -15,86 +16,90 @@ export class AccountService {
 		private readonly analysisService: AnalysisService,
 		private readonly samplesService: SamplesService,
 		private readonly hashingPasswordProvider: HashingPasswordProvider,
+		private readonly cacheProvider: CacheProvider,
 	) {}
 
 	async getAccount(user_id: number) {
-		const user = await this.usersService.findOne(user_id);
-		const workspaces = await this.workspacesService.getTotal(user_id);
-		const analyses = await this.analysisService.getTotal(user_id);
-
-		return {
-			status: 'success',
-			message: 'Get account successfully',
-			data: {
-				...user,
-				workspaces,
-				analyses,
+		const data = await this.cacheProvider.getOrSet(
+			`account:${user_id}`,
+			5 * 60,
+			async () => {
+				const user = await this.usersService.findOne(user_id);
+				const workspaces = await this.workspacesService.getTotal(user_id);
+				const analyses = await this.analysisService.getTotal(user_id);
+				return { ...user, workspaces, analyses };
 			},
-		};
+		);
+		return { status: 'success', message: 'Get account successfully', data };
 	}
 
 	async getAccountDashboard(user_id: number) {
-		const workspaces = await this.workspacesService.getTotal(user_id);
-		const analyses = await this.analysisService.getTotal(user_id);
-		const samples = await this.samplesService.getTotal(user_id);
+		const data = await this.cacheProvider.getOrSet(
+			`account:dashboard:${user_id}`,
+			5 * 60,
+			async () => {
+				const workspaces = await this.workspacesService.getTotal(user_id);
+				const analyses = await this.analysisService.getTotal(user_id);
+				const samples = await this.samplesService.getTotal(user_id);
 
-		const analysisByStatus =
-			await this.analysisService.getAnalysisStaticsByStatus(user_id);
-		const samplesByFileType =
-			await this.samplesService.getSamplesStaticsByFileType(user_id);
-		const samplesbyAsembly =
-			await this.samplesService.getSamplesStaticsByAssembly(user_id);
+				const analysisByStatus =
+					await this.analysisService.getAnalysisStaticsByStatus(user_id);
+				const samplesByFileType =
+					await this.samplesService.getSamplesStaticsByFileType(user_id);
+				const samplesbyAsembly =
+					await this.samplesService.getSamplesStaticsByAssembly(user_id);
 
-		const lastSixMonthsNumbers = this.getLastSixMonths();
+				const lastSixMonthsNumbers = this.getLastSixMonths();
 
-		const samplesLastSixMonths =
-			await this.samplesService.getSamplesLastSixMonths(
-				user_id,
-				lastSixMonthsNumbers,
-			);
-		const analysisLastSixMonths =
-			await this.analysisService.getAnalysesStatistics(
-				user_id,
-				lastSixMonthsNumbers,
-			);
+				const samplesLastSixMonths =
+					await this.samplesService.getSamplesLastSixMonths(
+						user_id,
+						lastSixMonthsNumbers,
+					);
+				const analysisLastSixMonths =
+					await this.analysisService.getAnalysesStatistics(
+						user_id,
+						lastSixMonthsNumbers,
+					);
+				const recentAnalyses =
+					await this.analysisService.getRecentAnalyses(user_id);
 
-		const recentAnalyses =
-			await this.analysisService.getRecentAnalyses(user_id);
+				const monthNames = [
+					'Jan',
+					'Feb',
+					'Mar',
+					'Apr',
+					'May',
+					'Jun',
+					'Jul',
+					'Aug',
+					'Sep',
+					'Oct',
+					'Nov',
+					'Dec',
+				];
+				const lastSixMonths = lastSixMonthsNumbers.map(
+					(month) => monthNames[month - 1],
+				);
 
-		const monthNames = [
-			'Jan',
-			'Feb',
-			'Mar',
-			'Apr',
-			'May',
-			'Jun',
-			'Jul',
-			'Aug',
-			'Sep',
-			'Oct',
-			'Nov',
-			'Dec',
-		];
-
-		const lastSixMonths = lastSixMonthsNumbers.map(
-			(month) => monthNames[month - 1],
+				return {
+					lastSixMonths,
+					workspaces,
+					analyses,
+					samples,
+					analysisByStatus,
+					samplesByFileType,
+					samplesbyAsembly,
+					samplesLastSixMonths,
+					analysisLastSixMonths,
+					recentAnalyses,
+				};
+			},
 		);
-
 		return {
 			status: 'success',
 			message: 'Get account dashboard successfully',
-			data: {
-				lastSixMonths,
-				workspaces,
-				analyses,
-				samples,
-				analysisByStatus,
-				samplesByFileType,
-				samplesbyAsembly,
-				samplesLastSixMonths,
-				analysisLastSixMonths,
-				recentAnalyses,
-			},
+			data,
 		};
 	}
 
@@ -131,48 +136,51 @@ export class AccountService {
 			throw new BadRequestException('User not found');
 		}
 
-		return await this.usersService.updateAccount(id, updateAccountDto);
+		const result = await this.usersService.updateAccount(id, updateAccountDto);
+		await this.cacheProvider.del(`account:${id}`);
+		return result;
 	}
 
 	async getAccountStatistics(user_id: number) {
-		const lastSixMonthsNumbers = this.getLastSixMonths();
-
-		const monthNames = [
-			'Jan',
-			'Feb',
-			'Mar',
-			'Apr',
-			'May',
-			'Jun',
-			'Jul',
-			'Aug',
-			'Sep',
-			'Oct',
-			'Nov',
-			'Dec',
-		];
-
-		const lastSixMonths = lastSixMonthsNumbers.map(
-			(month) => monthNames[month - 1],
+		const data = await this.cacheProvider.getOrSet(
+			`account:stats:${user_id}`,
+			5 * 60,
+			async () => {
+				const lastSixMonthsNumbers = this.getLastSixMonths();
+				const monthNames = [
+					'Jan',
+					'Feb',
+					'Mar',
+					'Apr',
+					'May',
+					'Jun',
+					'Jul',
+					'Aug',
+					'Sep',
+					'Oct',
+					'Nov',
+					'Dec',
+				];
+				const lastSixMonths = lastSixMonthsNumbers.map(
+					(month) => monthNames[month - 1],
+				);
+				const analysesStatistics =
+					await this.analysisService.getAnalysesStatistics(
+						user_id,
+						lastSixMonthsNumbers,
+					);
+				const workspacesStatistics =
+					await this.workspacesService.getWorkspacesStatistics(
+						user_id,
+						lastSixMonthsNumbers,
+					);
+				return { lastSixMonths, analysesStatistics, workspacesStatistics };
+			},
 		);
-		const analysesStatistics = await this.analysisService.getAnalysesStatistics(
-			user_id,
-			lastSixMonthsNumbers,
-		);
-		const workspacesStatistics =
-			await this.workspacesService.getWorkspacesStatistics(
-				user_id,
-				lastSixMonthsNumbers,
-			);
-
 		return {
 			status: 'success',
 			message: 'Get account statistics successfully',
-			data: {
-				lastSixMonths,
-				analysesStatistics,
-				workspacesStatistics,
-			},
+			data,
 		};
 	}
 
