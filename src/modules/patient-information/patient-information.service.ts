@@ -10,6 +10,7 @@ import { PatientsInformation } from '@/entities';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AnalysisService } from '../analysis/analysis.service';
+import { CacheProvider } from '@/common/providers/cache.provider';
 import * as dayjs from 'dayjs';
 
 @Injectable()
@@ -19,6 +20,7 @@ export class PatientsInformationService {
 		private patientInformationRepository: Repository<PatientsInformation>,
 		@Inject(forwardRef(() => AnalysisService))
 		private readonly analysisService: AnalysisService,
+		private readonly cacheProvider: CacheProvider,
 	) {}
 
 	async create(createPatientInformationDto: CreatePatientInformationDto) {
@@ -38,25 +40,36 @@ export class PatientsInformationService {
 	}
 
 	async findOne(analysis_id: number) {
-		const temp = await this.analysisService.findOne(analysis_id);
-		const analysis = temp.data;
+		const cacheKey = `patient:analysis:${analysis_id}`;
+		const ttlSeconds = 600; // 10 minutes
 
-		const patient = await this.patientInformationRepository.findOne({
-			where: { sample_id: analysis.sample_id },
-		});
-		if (!patient) {
-			throw new BadRequestException('The patient could not be found');
-		}
+		const patientInfo = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttlSeconds,
+			async () => {
+				const temp = await this.analysisService.findOne(analysis_id);
+				const analysis = temp.data;
+
+				const patient = await this.patientInformationRepository.findOne({
+					where: { sample_id: analysis.sample_id },
+				});
+				if (!patient) {
+					throw new BadRequestException('The patient could not be found');
+				}
+
+				return {
+					...patient,
+					createdAt: dayjs(patient.createdAt).format('DD/MM/YYYY'),
+					dob: dayjs(patient.dob).format('YYYY/MM/DD'),
+					sample_name: analysis.sampleName,
+				};
+			},
+		);
 
 		return {
 			status: 'success',
 			message: 'Get patient information successfully',
-			data: {
-				...patient,
-				createdAt: dayjs(patient.createdAt).format('DD/MM/YYYY'),
-				dob: dayjs(patient.dob).format('YYYY/MM/DD'),
-				sample_name: analysis.sampleName,
-			},
+			data: patientInfo,
 		};
 	}
 
@@ -74,6 +87,9 @@ export class PatientsInformationService {
 				sample_type: updatePatientInformationDto.sample_type,
 				gender: updatePatientInformationDto.gender,
 			});
+
+			await this.cacheProvider.delByPattern(`patient:*`);
+
 			return {
 				status: 'success',
 				message: 'Patient information updated successfully',

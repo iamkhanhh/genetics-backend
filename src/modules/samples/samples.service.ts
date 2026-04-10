@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Samples } from '@/entities';
 import { Like, Repository } from 'typeorm';
 import { PaginationProvider } from '@/common/providers/pagination.provider';
+import { CacheProvider } from '@/common/providers/cache.provider';
 import * as dayjs from 'dayjs';
 import { FilterSampleDto } from './dto/filter-sample.dto';
 import { S3Provider } from '@/common/providers/s3.provider';
@@ -17,12 +18,14 @@ import { PatientsInformationService } from '../patient-information/patient-infor
 import { GeneratePresignedUrls } from './dto/generate-presigned-urls.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { UpdateUploadDto } from '../uploads/dto/update-upload.dto';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class SamplesService {
 	constructor(
 		@InjectRepository(Samples) private samplesRepository: Repository<Samples>,
 		private readonly paginationProvider: PaginationProvider,
+		private readonly cacheProvider: CacheProvider,
 		private readonly s3Provider: S3Provider,
 		private readonly configService: ConfigService,
 		private readonly uploadsService: UploadsService,
@@ -95,6 +98,8 @@ export class SamplesService {
 			}
 		}
 
+		await this.cacheProvider.delByPattern(`sample:list:user:${user_id}:*`);
+
 		return {
 			status: 'success',
 			message: 'Create FastQ samples successfully',
@@ -107,55 +112,79 @@ export class SamplesService {
 		pageSize: number,
 		filterSampleDto: FilterSampleDto,
 	) {
-		const filters: any = {
-			user_id: id,
-		};
+		const filterHash = createHash('md5')
+			.update(JSON.stringify(filterSampleDto))
+			.digest('hex')
+			.slice(0, 8);
+		const cacheKey = `sample:list:user:${id}:p${page}:ps${pageSize}:${filterHash}`;
 
-		if (filterSampleDto.type != '') {
-			filters.file_type = filterSampleDto.type;
-		}
-		if (filterSampleDto.assembly != '') {
-			filters.assembly = filterSampleDto.assembly;
-		}
-		if (filterSampleDto.searchTerm != '') {
-			filters.name = Like(`%${filterSampleDto.searchTerm}%`);
-		}
-
-		const results = await this.paginationProvider.paginate<Samples>(
-			page,
-			pageSize,
-			this.samplesRepository,
-			filters,
-		);
-
-		const data = await Promise.all(
-			results.data.map(async (sample) => {
-				const formatted_date = dayjs(sample.createdAt).format('DD/MM/YYYY');
-				const sample_status = Samples.getSampleStatus(sample.complete_status);
-				return {
-					id: sample.id,
-					name: sample.name,
-					createdAt: formatted_date,
-					type: sample.file_type,
-					status: sample_status,
-					size: sample.file_size,
-					assembly: sample.assembly,
+		const cached = await this.cacheProvider.getOrSet(
+			cacheKey,
+			5 * 60,
+			async () => {
+				const filters: any = {
+					user_id: id,
 				};
-			}),
-		);
 
-		return {
-			...results,
-			data,
-			message: 'List all workspaces successfully!',
-		};
+				if (filterSampleDto.type != '') {
+					filters.file_type = filterSampleDto.type;
+				}
+				if (filterSampleDto.assembly != '') {
+					filters.assembly = filterSampleDto.assembly;
+				}
+				if (filterSampleDto.searchTerm != '') {
+					filters.name = Like(`%${filterSampleDto.searchTerm}%`);
+				}
+
+				const results = await this.paginationProvider.paginate<Samples>(
+					page,
+					pageSize,
+					this.samplesRepository,
+					filters,
+				);
+
+				const data = await Promise.all(
+					results.data.map(async (sample) => {
+						const formatted_date = dayjs(sample.createdAt).format('DD/MM/YYYY');
+						const sample_status = Samples.getSampleStatus(
+							sample.complete_status,
+						);
+						return {
+							id: sample.id,
+							name: sample.name,
+							createdAt: formatted_date,
+							type: sample.file_type,
+							status: sample_status,
+							size: sample.file_size,
+							assembly: sample.assembly,
+						};
+					}),
+				);
+
+				return { ...results, data };
+			},
+		);
+		return { ...cached, message: 'List all samples successfully!' };
 	}
 
 	async findOne(id: number) {
-		const sample = await this.samplesRepository.findOne({ where: { id } });
-		if (!sample) {
-			throw new BadRequestException('That sample could not be found');
-		}
+		const cacheKey = `sample:${id}`;
+		const ttlSeconds = 300;
+
+		const sample = await this.cacheProvider.getOrSet(
+			cacheKey,
+			ttlSeconds,
+			async () => {
+				const sampleData = await this.samplesRepository.findOne({
+					where: { id },
+				});
+				if (!sampleData) {
+					throw new BadRequestException('That sample could not be found');
+				}
+				return sampleData;
+			},
+		);
+
 		return {
 			status: 'success',
 			message: 'got sample successfully!',
@@ -173,11 +202,11 @@ export class SamplesService {
 			throw new BadRequestException('There is not a pipeline has that id!');
 		}
 
-		const samples = await this.samplesRepository.find({
-			where: {
-				file_type,
-			},
-		});
+		const samples = await this.cacheProvider.getOrSet(
+			`sample:pipeline:${id}`,
+			5 * 60,
+			() => this.samplesRepository.find({ where: { file_type } }),
+		);
 
 		return {
 			status: 'success',
@@ -297,6 +326,8 @@ export class SamplesService {
 		if (!patient) {
 			throw new BadRequestException('Patient Information create failed');
 		}
+
+		await this.cacheProvider.delByPattern(`sample:list:user:${user_id}:*`);
 
 		return {
 			status: 'success',
