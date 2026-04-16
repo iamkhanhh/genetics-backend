@@ -1,5 +1,5 @@
 # dùng node LTS
-FROM node:20
+FROM node:20 AS builder
 
 # install mongoimport (mongodb-database-tools)
 COPY --from=mongo:4.2.14 /usr/bin/mongoimport /usr/local/bin/mongoimport
@@ -24,3 +24,20 @@ EXPOSE 3000
 
 # chạy migration rồi start app
 CMD npm run start:dev
+
+# ─── Production stage ───────────────────────────────────
+FROM node:20-alpine
+
+COPY --from=mongo:4.2.14 /usr/bin/mongoimport /usr/local/bin/mongoimport
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install --legacy-peer-deps --omit=dev
+
+COPY --from=builder /app/dist ./dist
+
+EXPOSE 3000
+
+# Dùng start:prod thay vì start:dev
+CMD ["node", "dist/main"]
