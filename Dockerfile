@@ -37,6 +37,7 @@ RUN npm install --legacy-peer-deps --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/database.json ./database.json
+COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 3000
 
