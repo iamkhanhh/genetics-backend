@@ -65,11 +65,20 @@ jobs:
           script: |
             docker pull ${{ env.IMAGE_NAME }}:latest
 
+            # Tạo network nếu chưa có
+            docker network create genetics-network 2>/dev/null || true
+
+            # Đảm bảo db containers cùng network
+            docker network connect genetics-network mysql 2>/dev/null || true
+            docker network connect genetics-network mongodb 2>/dev/null || true
+            docker network connect genetics-network redis 2>/dev/null || true
+
             docker stop ${{ env.CONTAINER_NAME }} || true
             docker rm ${{ env.CONTAINER_NAME }} || true
 
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
+              --network genetics-network \
               --restart unless-stopped \
               -p 3000:3000 \
               --env-file /home/${{ secrets.SERVER_USER }}/genetics/.env \
