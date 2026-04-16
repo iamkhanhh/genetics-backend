@@ -1,13 +1,12 @@
 {
   "dev": {
     "driver": "mysql",
-    "host": "localhost",
-    "port": 33069,
+    "host": "mysql",
+    "port": 3306,
     "user": "root",
-    "password": "khanh123",
+    "password": "123456",
     "database": "genetics",
     "charset": "utf8",
     "collation": "utf8_unicode_ci"
   }
 }
-
