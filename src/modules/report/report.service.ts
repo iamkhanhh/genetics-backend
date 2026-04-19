@@ -130,8 +130,8 @@ export class ReportService {
 		analysis_id: number,
 	) {
 		const templatePath = path.resolve(
-			process.cwd(),
-			'src/modules/report/templates/genetics_report_template.docx',
+			__dirname,
+			'templates/genetics_report_template.docx',
 		);
 
 		if (!fs.existsSync(templatePath)) {
@@ -497,8 +497,8 @@ export class ReportService {
 		analysis_id: number,
 	) {
 		const templatePath = path.resolve(
-			process.cwd(),
-			'src/modules/report/templates/genetics_Pgx_template.docx',
+			__dirname,
+			'templates/genetics_Pgx_template.docx',
 		);
 
 		if (!fs.existsSync(templatePath)) {
