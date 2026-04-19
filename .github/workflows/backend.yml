@@ -69,9 +69,9 @@ jobs:
             docker network create genetics-network 2>/dev/null || true
 
             # Đảm bảo db containers cùng network
-            docker network connect genetics-network mysql 2>/dev/null || true
-            docker network connect genetics-network mongodb 2>/dev/null || true
-            docker network connect genetics-network redis 2>/dev/null || true
+            docker network connect genetics-network genetics-mysql 2>/dev/null || true
+            docker network connect genetics-network genetics-mongodb 2>/dev/null || true
+            docker network connect genetics-network genetics-redis 2>/dev/null || true
 
             docker stop ${{ env.CONTAINER_NAME }} || true
             docker rm ${{ env.CONTAINER_NAME }} || true
