@@ -30,6 +30,8 @@ FROM node:20-alpine
 
 COPY --from=mongo:4.2.14 /usr/bin/mongoimport /usr/local/bin/mongoimport
 
+RUN apk add --no-cache libc6-compat
+
 WORKDIR /app
 
 COPY package*.json ./
