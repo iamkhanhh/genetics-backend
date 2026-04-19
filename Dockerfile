@@ -42,4 +42,4 @@ COPY --from=builder /app/migrations ./migrations
 EXPOSE 3000
 
 # Dùng start:prod thay vì start:dev
-CMD ./node_modules/.bin/db-migrate up && node dist/main
+CMD node dist/main
