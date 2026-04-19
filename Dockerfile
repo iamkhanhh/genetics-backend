@@ -39,6 +39,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/database.json ./database.json
 COPY --from=builder /app/migrations ./migrations
 
+RUN ./node_modules/.bin/db-migrate migration:run
+
 EXPOSE 3000
 
 # Dùng start:prod thay vì start:dev
