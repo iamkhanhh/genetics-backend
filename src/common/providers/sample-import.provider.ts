@@ -78,6 +78,7 @@ export class SampleImportProvider {
 				`--file ${this.configService.get<string>('MOUNT_FOLDER')}/${analysis.file_path}`,
 				`--drop`,
 			];
+			// mongoimport --host localhost --port 27017 --collection genetics_analysis_4 --db genetics --type tsv --headerline --file analysis_hg38.anno --drop
 
 			const command = `${this.configService.get<string>('MONGO_IMPORT_CMD')} ${options.join(' ')}`;
 
@@ -104,6 +105,19 @@ export class SampleImportProvider {
 				);
 				return this.onImportError(analysis);
 			}
+
+			await collection.createIndexes([
+				{ key: { gene: 1 } },
+				{ key: { CLINSIG_FINAL: 1 } },
+				{ key: { IMPACT: 1 } },
+				{ key: { codingEffect: 1 } },
+				{ key: { chrom: 1, inputPos: 1 } },
+				{ key: { CLINSIG_PRIORITY: 1 } },
+				{ key: { chrom_pos_ref_alt_gene: 1 } },
+				{ key: { PGx: 1 } },
+				{ key: { rsId: 1 } },
+			]);
+			this.logger.log(`Indexes created for collection: ${collectionName}`);
 
 			const pipeCount = [];
 			pipeCount.push({ $group: { _id: null, count: { $sum: 1 } } });
