@@ -457,15 +457,20 @@ export class AnalysisService {
 			throw new BadRequestException('That analysis could not be found');
 		}
 
-		const file_path =
-			'http://s3.amazonaws.com/vcf.files/ExAC.r0.2.sites.vep.vcf.gz';
-		const tbi_path = '';
+		// const file_path = 'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz';
+		// const tbi_path = 'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz.tbi';
+		const file_path = await this.s3Provider.generateDownloadUrl(
+			`${this.configService.get<string>('ANALYSIS_FOLDER')}/${analysis.user_id}/${analysis.id}/analysis.vcf.gz`,
+		);
+		const tbi_path = await this.s3Provider.generateDownloadUrl(
+			`${this.configService.get<string>('ANALYSIS_FOLDER')}/${analysis.user_id}/${analysis.id}/analysis.vcf.gz.tbi`,
+		);
 		const genome_build = analysis.assembly == 'hg19' ? 'GRCh37' : 'GRCh38';
 
 		return {
 			status: 'success',
 			message: 'Get QC URL successfully',
-			data: `${this.configService.get<string>('VCF_IOBIO_HOST')}/?species=Human&build=${genome_build}&vcf=${file_path}&tbi=${tbi_path}`,
+			data: `${this.configService.get<string>('VCF_IOBIO_HOST')}/?species=Human&build=${genome_build}&vcf=${encodeURIComponent(file_path)}&tbi=${encodeURIComponent(tbi_path)}`,
 		};
 	}
 
