@@ -563,7 +563,10 @@ export class AnalysisService {
 			{ id },
 			{ variants_to_report: JSON.stringify(arr) },
 		);
-		await this.cacheProvider.del(`variants:selected:${id}`);
+		await Promise.all([
+			this.cacheProvider.del(`variants:selected:${id}`),
+			this.cacheProvider.del(`analysis:${id}`),
+		]);
 
 		return {
 			status: 'success',

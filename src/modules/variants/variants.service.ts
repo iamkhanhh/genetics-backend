@@ -50,26 +50,14 @@ export class VariantsService {
 				if (!collection) {
 					throw new BadRequestException('Collection not found');
 				}
-				console.log('');
 				const pipeline = [];
 				const pipeCount = [];
 				const matchAnd = this.matchFilter(filter);
-
-				console.log(
-					'[VARIANTS] Calling matchFilter with:',
-					JSON.stringify(filter),
-				);
-				console.log('[VARIANTS] matchAnd result:', JSON.stringify(matchAnd));
 
 				if (matchAnd.length > 0) {
 					const match = { $match: { $and: matchAnd } };
 					pipeline.push(match);
 					pipeCount.push(match);
-					console.log('[VARIANTS] Added $match to pipeline');
-				} else {
-					console.log(
-						'[VARIANTS] WARNING: matchAnd is empty, returning ALL variants!',
-					);
 				}
 
 				pipeline.push({
@@ -87,10 +75,6 @@ export class VariantsService {
 					collection.aggregate(pipeline, { allowDiskUse: true }).toArray(),
 					collection.aggregate(pipeCount, { allowDiskUse: true }).toArray(),
 				]);
-
-				console.log(
-					`[VARIANTS] Query results: ${data.length} variants found (total: ${count[0]?.count || 0})`,
-				);
 
 				for (const item of data) {
 					const omim = await this.getOmimDiseaseForGeneName(item.gene);
