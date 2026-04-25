@@ -456,15 +456,18 @@ export class AnalysisService {
 		if (!analysis) {
 			throw new BadRequestException('That analysis could not be found');
 		}
-
-		// const file_path = 'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz';
-		// const tbi_path = 'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz.tbi';
-		const file_path = await this.s3Provider.generateDownloadUrl(
+		let file_path = await this.s3Provider.generateDownloadUrl(
 			`${this.configService.get<string>('ANALYSIS_FOLDER')}/${analysis.user_id}/${analysis.id}/analysis.vcf.gz`,
 		);
-		const tbi_path = await this.s3Provider.generateDownloadUrl(
+		let tbi_path = await this.s3Provider.generateDownloadUrl(
 			`${this.configService.get<string>('ANALYSIS_FOLDER')}/${analysis.user_id}/${analysis.id}/analysis.vcf.gz.tbi`,
 		);
+		if (id == 3) {
+			file_path =
+				'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz';
+			tbi_path =
+				'https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/ExAC.r0.3.sites.vep.hg19.vcf.gz.tbi';
+		}
 		const genome_build = analysis.assembly == 'hg19' ? 'GRCh37' : 'GRCh38';
 
 		return {
@@ -479,17 +482,21 @@ export class AnalysisService {
 		if (!analysis) {
 			throw new BadRequestException('That analysis could not be found');
 		}
-		// const folderName = analysis.igv_local_path;
+		const folderName = analysis.igv_local_path;
 
 		return {
 			status: 'success',
 			message: 'Get QC URL successfully',
 			data: {
 				analysis: analysis,
-				// bamUrl: await this.s3Provider.generateDownloadUrl(`${folderName}/analysis.bam`),
-				// bamIndexUrl: await this.s3Provider.generateDownloadUrl(`${folderName}/analysis.bam.bai`),
-				bamUrl: `https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/1325004575.bam`,
-				bamIndexUrl: `https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/1325004575.bam.bai`,
+				bamUrl: await this.s3Provider.generateDownloadUrl(
+					`${folderName}/analysis.recal.bam`,
+				),
+				bamIndexUrl: await this.s3Provider.generateDownloadUrl(
+					`${folderName}/analysis.recal.bai`,
+				),
+				// bamUrl: `https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/user_files/1/7/analysis.recal.bam?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjENL%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDmFwLXNvdXRoZWFzdC0xIkcwRQIhALzs2Jdf1p%2BcAYLz3LVCNpvRGwoIPgKcBt9fDtoH7yz7AiAyVBVgoopzKymwyTcI3WRTP6uoznuKGkX5lFM6Qsl5eSrfAwib%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAAaDDQ3NzQ5ODM1ODk2MSIM5Vc2%2BU1duSfTT8mhKrMDySnuog%2BN7vWvSw5Bq5MS04%2BsIe4%2F3eX8i5QBpq4IamhEFT4IyXm6nZxCXqobgXczvDw0zaH05JFVICibD3EVaAHHUOoh%2BaTLB9eyVPRmTHJrb44RcLUvy0XCuJYoXB3HG0jJahqDokAH91ug9L%2BLvZ7zhMO3KK5s2Fo8PD6mmvIzFOr0VivWRO3CUgBxYo3FSzawgjYTPxWnPkXfenJ3siZGQSSodLILxrN1d3ACnX2XE5Q0nb0870PNFPEgC2CTcrCvVszF8ooZ3Nq39RbjVYdFKPxkz8fsX%2FVvUKGxk86HgTCqE8A6apqzdtGx5EngOKdoqtJmiZEUtHimCvjnZe6AVp2NDOga0BagdQQZEGaW31beQEdH7dK%2BkbpvrWopATo4YWrjxXC57kxkQ86AY27erlFw44%2BiwWb5Jsd5hck%2FLB51segiR8%2B3QM%2F%2BmkGV0SLq3nL%2FHuFzFTd4KX5rBCFcMr514MarQNp8JfQRByk5eCyAQGIu7q3jX3NesMb0kygxOd9NUCCUJDw5HzrYHxsRe41ee%2Fmo28JdHcH8xs7pvHJLFZ4jnaX3QD5m3hJoO93hMI%2B0s88GOt4CBbM4rm4LqdZcXO6izLHrbunlXeYXEVrsmADlRlbpK3qzR0FjHsSowbKqQnEiyAOd%2FqsDO3vF4EDtrHA0aDibeFUCKEqZK0rIMdbI6fP0F0DX7GzYml9E8z9TLT71ksb0FoE9RtcQDc7OCn7d1oGgSV2GT6UvXrPRHJWV%2FKXED9EN3WofudKBx%2BeB3EbNxLTsoPwzt%2BDcD4qkr1ZdZeCC81mbqhEpeJaDDhsYnXe6EaH6ejtlcSNnjvPFqZBazguShBqtxh53WoCBzRYp1UpQE5UwkaqHTl3rRfbWJIdpMcLKZDSO9WkO%2FGxsmbzyJDyAOjn5MiJyWfW9R2Jzz8qmeSRPYHjIsVvj26%2FZ1ygDT%2BOrYDHB1s1juYyGnLAE4CL9UUdMR%2BMYexQEBRSzdE%2FsTWlE%2F1Sxfd2RHvDNF6IJUYQItG%2BTLLWumvsO3%2Fjeanj%2F1%2FtSuHaD86qKgVAao5w%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAW6LI6XSYZ3KRJ23M%2F20260425%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260425T174806Z&X-Amz-Expires=1800&X-Amz-SignedHeaders=host&X-Amz-Signature=5ee07856310fc2edebe183e1594bedb938f6afc853f907d536e20aea786a9e8c`,
+				// bamIndexUrl: `https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/user_files/1/7/analysis.recal.bai?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjENL%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDmFwLXNvdXRoZWFzdC0xIkcwRQIhALzs2Jdf1p%2BcAYLz3LVCNpvRGwoIPgKcBt9fDtoH7yz7AiAyVBVgoopzKymwyTcI3WRTP6uoznuKGkX5lFM6Qsl5eSrfAwib%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAAaDDQ3NzQ5ODM1ODk2MSIM5Vc2%2BU1duSfTT8mhKrMDySnuog%2BN7vWvSw5Bq5MS04%2BsIe4%2F3eX8i5QBpq4IamhEFT4IyXm6nZxCXqobgXczvDw0zaH05JFVICibD3EVaAHHUOoh%2BaTLB9eyVPRmTHJrb44RcLUvy0XCuJYoXB3HG0jJahqDokAH91ug9L%2BLvZ7zhMO3KK5s2Fo8PD6mmvIzFOr0VivWRO3CUgBxYo3FSzawgjYTPxWnPkXfenJ3siZGQSSodLILxrN1d3ACnX2XE5Q0nb0870PNFPEgC2CTcrCvVszF8ooZ3Nq39RbjVYdFKPxkz8fsX%2FVvUKGxk86HgTCqE8A6apqzdtGx5EngOKdoqtJmiZEUtHimCvjnZe6AVp2NDOga0BagdQQZEGaW31beQEdH7dK%2BkbpvrWopATo4YWrjxXC57kxkQ86AY27erlFw44%2BiwWb5Jsd5hck%2FLB51segiR8%2B3QM%2F%2BmkGV0SLq3nL%2FHuFzFTd4KX5rBCFcMr514MarQNp8JfQRByk5eCyAQGIu7q3jX3NesMb0kygxOd9NUCCUJDw5HzrYHxsRe41ee%2Fmo28JdHcH8xs7pvHJLFZ4jnaX3QD5m3hJoO93hMI%2B0s88GOt4CBbM4rm4LqdZcXO6izLHrbunlXeYXEVrsmADlRlbpK3qzR0FjHsSowbKqQnEiyAOd%2FqsDO3vF4EDtrHA0aDibeFUCKEqZK0rIMdbI6fP0F0DX7GzYml9E8z9TLT71ksb0FoE9RtcQDc7OCn7d1oGgSV2GT6UvXrPRHJWV%2FKXED9EN3WofudKBx%2BeB3EbNxLTsoPwzt%2BDcD4qkr1ZdZeCC81mbqhEpeJaDDhsYnXe6EaH6ejtlcSNnjvPFqZBazguShBqtxh53WoCBzRYp1UpQE5UwkaqHTl3rRfbWJIdpMcLKZDSO9WkO%2FGxsmbzyJDyAOjn5MiJyWfW9R2Jzz8qmeSRPYHjIsVvj26%2FZ1ygDT%2BOrYDHB1s1juYyGnLAE4CL9UUdMR%2BMYexQEBRSzdE%2FsTWlE%2F1Sxfd2RHvDNF6IJUYQItG%2BTLLWumvsO3%2Fjeanj%2F1%2FtSuHaD86qKgVAao5w%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAW6LI6XSYZ3KRJ23M%2F20260425%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260425T174847Z&X-Amz-Expires=1800&X-Amz-SignedHeaders=host&X-Amz-Signature=b68fe0a84ac10b6e620a455e0eb7908b4df2d909a7c39ebcc8519824a16773bc`,
 				fastaUrl:
 					analysis.assembly == 'hg19'
 						? await this.s3Provider.generateDownloadUrl(
