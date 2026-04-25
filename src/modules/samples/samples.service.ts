@@ -181,7 +181,18 @@ export class SamplesService {
 				if (!sampleData) {
 					throw new BadRequestException('That sample could not be found');
 				}
-				return sampleData;
+				let uploadsData = await this.uploadsService.findUploadsBySampleId(
+					sampleData.id,
+				);
+				uploadsData = await Promise.all(
+					uploadsData.map(async (upload) => ({
+						...upload,
+						file_path: await this.s3Provider.generateDownloadUrl(
+							upload.file_path,
+						),
+					})),
+				);
+				return { ...sampleData, uploads: uploadsData };
 			},
 		);
 
