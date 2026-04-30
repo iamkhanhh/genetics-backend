@@ -21,6 +21,9 @@ export class Samples extends AbstractEntity {
 	@Column()
 	assembly: string;
 
+	@Column({ default: 0 })
+	is_deleted: number;
+
 	static getSampleStatus(status: number): string {
 		switch (status) {
 			case 0:

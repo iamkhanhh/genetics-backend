@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ContactDto } from './dto/contact.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateAuthDto } from '@/auth/dto/create-auth.dto';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,6 +22,7 @@ export class UsersService {
 	constructor(
 		@InjectRepository(Users) private usersRepository: Repository<Users>,
 		private readonly mailerService: MailerService,
+		private readonly configService: ConfigService,
 		private readonly hashingPasswordProvider: HashingPasswordProvider,
 		private readonly paginationProvider: PaginationProvider,
 	) {}
@@ -273,6 +276,22 @@ export class UsersService {
 			status: 'success',
 			message: 'Update successfully',
 		};
+	}
+
+	async sendContactEmail(dto: ContactDto): Promise<void> {
+		const adminEmail = this.configService.get<string>('MAIL_USER');
+		await this.mailerService.sendMail({
+			to: adminEmail,
+			subject: `[Contact] ${dto.interestedIn} - ${dto.name}`,
+			template: 'contact',
+			context: {
+				name: dto.name,
+				email: dto.email,
+				phone: dto.phone || 'N/A',
+				interestedIn: dto.interestedIn,
+				message: dto.message,
+			},
+		});
 	}
 
 	async forgotPassword(email: string) {
