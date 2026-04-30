@@ -10,7 +10,9 @@ import {
 	ParseIntPipe,
 	DefaultValuePipe,
 	Request,
+	HttpCode,
 } from '@nestjs/common';
+import { Public } from '@/decorators/public.decorator';
 import {
 	ApiTags,
 	ApiOperation,
@@ -19,6 +21,7 @@ import {
 	ApiQuery,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
+import { ContactDto } from './dto/contact.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUsersDto } from './dto/filter-users.dto';
@@ -28,6 +31,16 @@ import { DeleteMultipleUsersDto } from './dto/delete-multiple-users.dto';
 @Controller('users')
 export class UsersController {
 	constructor(private readonly usersService: UsersService) {}
+
+	@Public()
+	@Post('contact')
+	@HttpCode(200)
+	@ApiOperation({ summary: 'Send contact message to admin' })
+	@ApiResponse({ status: 200, description: 'Message sent successfully' })
+	async contact(@Body() dto: ContactDto) {
+		await this.usersService.sendContactEmail(dto);
+		return { message: 'Your message has been sent successfully.' };
+	}
 
 	@Post()
 	@ApiOperation({ summary: 'Create a new user' })

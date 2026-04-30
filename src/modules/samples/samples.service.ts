@@ -124,6 +124,7 @@ export class SamplesService {
 			async () => {
 				const filters: any = {
 					user_id: id,
+					is_deleted: 0,
 				};
 
 				if (filterSampleDto.type != '') {
@@ -355,6 +356,7 @@ export class SamplesService {
 		new_sample.file_type = data.file_type;
 		new_sample.assembly = data.assembly;
 		new_sample.complete_status = data.complete_status;
+		new_sample.is_deleted = 0;
 
 		return await this.samplesRepository.save(new_sample);
 	}
@@ -446,11 +448,49 @@ export class SamplesService {
 		return data;
 	}
 
-	update(id: number, _updateSampleDto: UpdateSampleDto) {
-		return `This action updates a #${id} sample`;
+	async update(id: number, _updateSampleDto: UpdateSampleDto) {
+		const sample = await this.samplesRepository.findOne({ where: { id } });
+		if (!sample) {
+			throw new BadRequestException('That sample could not be found');
+		}
+		try {
+			await this.samplesRepository.update(id, {
+				name: _updateSampleDto.sampleName,
+				complete_status: _updateSampleDto.complete_status,
+				assembly: _updateSampleDto.assembly,
+			});
+		} catch (error) {
+			throw new BadRequestException('Update sample failed');
+		}
+		await this.cacheProvider.del(`sample:${id}`);
+		await this.cacheProvider.delByPattern(
+			`sample:list:user:${sample.user_id}:*`,
+		);
+
+		return {
+			status: 'success',
+			message: 'Update sample successfully',
+		};
 	}
 
-	remove(id: number) {
-		return `This action removes a #${id} sample`;
+	async remove(id: number) {
+		const sample = await this.samplesRepository.findOne({ where: { id } });
+		if (!sample) {
+			throw new BadRequestException('That sample could not be found');
+		}
+		try {
+			await this.samplesRepository.update(id, { is_deleted: 1 });
+		} catch (error) {
+			throw new BadRequestException('Delete sample failed');
+		}
+		await this.cacheProvider.del(`sample:${id}`);
+		await this.cacheProvider.delByPattern(
+			`sample:list:user:${sample.user_id}:*`,
+		);
+
+		return {
+			status: 'success',
+			message: 'Delete sample successfully',
+		};
 	}
 }
