@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from '@/app.controller';
 import { AppService } from '@/app.service';
 import { UsersModule } from '@/modules/users/users.module';
@@ -135,6 +135,10 @@ const ENV = process.env.NODE_ENV || 'development';
 	controllers: [AppController],
 	providers: [
 		AppService,
+		{
+			provide: APP_GUARD,
+			useClass: ThrottlerGuard,
+		},
 		{
 			provide: APP_GUARD,
 			useClass: AuthGuard,
