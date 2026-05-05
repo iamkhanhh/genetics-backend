@@ -71,7 +71,15 @@ export class AnalysisService {
 			newAnalysis.status = AnalysisStatus.FASTQ_QUEUING;
 		}
 
-		const result = await this.analysisRepository.save(newAnalysis);
+		let result;
+		try {
+			result = await this.analysisRepository.save(newAnalysis);
+		} catch (error) {
+			return {
+				status: 'error',
+				message: 'Failed to create analysis',
+			};
+		}
 		const igv_local_path = `${this.configService.get<string>('ANALYSIS_FOLDER')}/${user_id}/${result.id}`;
 		await this.analysisRepository.update(
 			{ id: result.id },
@@ -191,7 +199,7 @@ export class AnalysisService {
 			2 * 60,
 			async () => {
 				const analysis = await this.analysisRepository.findOne({
-					where: { id },
+					where: { id, is_deleted: 0 },
 				});
 				if (!analysis) {
 					throw new BadRequestException('That analysis could not be found');
@@ -671,7 +679,7 @@ export class AnalysisService {
 
 	async updateAnalysisStatus(analysisId: number, status: AnalysisStatus) {
 		const analysis = await this.analysisRepository.findOne({
-			where: { id: analysisId },
+			where: { id: analysisId, is_deleted: 0 },
 		});
 		if (!analysis) {
 			throw new BadRequestException('That analysis could not be found');

@@ -40,6 +40,7 @@ export class CreateAnalysisDto {
 	@ApiProperty({ example: 'hg19', description: 'Genome assembly version' })
 	@IsNotEmpty()
 	@IsString()
+	@IsEnum(['hg19', 'hg38'], { message: 'assembly must be either hg19 or hg38' })
 	assembly: string;
 
 	@ApiProperty({
