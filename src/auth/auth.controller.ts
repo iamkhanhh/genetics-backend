@@ -21,6 +21,7 @@ import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './passport/local-auth.guard';
 import { Public } from '@/decorators';
 import { CreateAuthDto } from './dto/create-auth.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { Response } from 'express';
 
 @ApiTags('Auth')
@@ -110,7 +111,7 @@ export class AuthController {
 		},
 	})
 	@ApiResponse({ status: 200, description: 'Password reset email sent' })
-	forgotPassword(@Request() req, @Body() forgotPasswordDto: any) {
+	forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
 		return this.authService.forgotPassword(forgotPasswordDto.email);
 	}
 
