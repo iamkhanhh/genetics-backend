@@ -25,6 +25,7 @@ import { ChatbotService } from '../chatbot/chatbot.service';
 import { VariantReportedDto } from './dto/variant-reported';
 import { ReferencesReportedDto } from './dto/references-reported.dto';
 import { VariantsService } from '../variants/variants.service';
+import { AnalysisStatus } from '@/enums';
 
 @Injectable()
 export class ReportService {
@@ -49,6 +50,11 @@ export class ReportService {
 			createReportDto.analysisId,
 		);
 		const analysis = analysisResult.data;
+		if (analysis.status !== AnalysisStatus.ANALYZED) {
+			throw new BadRequestException(
+				"Can't create report for an analysis that is not analyzed yet",
+			);
+		}
 
 		const detailsGeneAnhVariant = await this.generateSummary(
 			createReportDto.variants,
