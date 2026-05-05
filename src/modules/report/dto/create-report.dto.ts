@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+	ArrayMinSize,
 	IsArray,
 	IsInt,
 	IsNotEmpty,
@@ -34,6 +35,9 @@ export class CreateReportDto {
 	@IsArray()
 	@ValidateNested({ each: true })
 	@Type(() => VariantReportedDto)
+	@ArrayMinSize(1, {
+		message: 'At least one variant must be included in the report',
+	})
 	variants: VariantReportedDto[];
 
 	@ApiProperty({
