@@ -7,6 +7,7 @@ import {
 	Param,
 	Delete,
 	ParseIntPipe,
+	ParseArrayPipe,
 	DefaultValuePipe,
 	Query,
 	Request,
@@ -49,7 +50,11 @@ export class SamplesController {
 		description: 'FASTQ samples created successfully',
 	})
 	@ApiResponse({ status: 400, description: 'Bad request' })
-	createSampleFastQ(@Body() body: CreateSampleFastQDto[], @Request() req) {
+	createSampleFastQ(
+		@Body(new ParseArrayPipe({ items: CreateSampleFastQDto }))
+		body: CreateSampleFastQDto[],
+		@Request() req,
+	) {
 		return this.samplesService.createSampleFastQ(body, req.user.id);
 	}
 
