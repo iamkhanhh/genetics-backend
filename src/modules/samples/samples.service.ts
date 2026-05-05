@@ -41,6 +41,17 @@ export class SamplesService {
 			const reverse = sample.reverse[0];
 			const forward = sample.forward[0];
 
+			const uploadCheck = await this.uploadsService.findOne(forward.uploadId);
+			if (!uploadCheck) {
+				throw new BadRequestException('Forward upload not found');
+			}
+			const reverseUploadCheck = await this.uploadsService.findOne(
+				reverse.uploadId,
+			);
+			if (!reverseUploadCheck) {
+				throw new BadRequestException('Reverse upload not found');
+			}
+
 			const forwardUploadInfor: UpdateUploadDto = {
 				file_path: `${this.configService.get('UPLOAD_FOLDER')}/${user_id}/${forward.uploadName}`,
 				upload_name: forward.uploadName,
@@ -79,6 +90,10 @@ export class SamplesService {
 				reverse.uploadId,
 				sampleSaved.id,
 			);
+
+			if (dayjs(sample.dob).isAfter(dayjs())) {
+				throw new BadRequestException('Date of birth must be in the past');
+			}
 
 			// create patient infor
 			const patientInfor = {

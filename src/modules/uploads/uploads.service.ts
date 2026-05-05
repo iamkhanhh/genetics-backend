@@ -42,7 +42,7 @@ export class UploadsService {
 	}
 
 	findOne(id: number) {
-		return `This action returns a #${id} upload`;
+		return this.uploadsRepository.findOne({ where: { id } });
 	}
 
 	async update(id: number, updateUploadDto: UpdateUploadDto) {
@@ -61,8 +61,20 @@ export class UploadsService {
 		}
 	}
 
-	remove(id: number) {
-		return `This action removes a #${id} upload`;
+	async remove(id: number) {
+		try {
+			await this.uploadsRepository.update({ id: id }, { is_deleted: 1 });
+			return {
+				status: 'success',
+				message: 'Delete upload record successfully',
+			};
+		} catch (error) {
+			console.log('err: ', error);
+			return {
+				status: 'error',
+				message: 'Delete upload record failed',
+			};
+		}
 	}
 
 	async findUploadsBySampleId(sample_id: number) {
