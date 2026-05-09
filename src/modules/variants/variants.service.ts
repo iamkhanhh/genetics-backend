@@ -265,9 +265,6 @@ export class VariantsService {
 				const num = parseInt(c, 10);
 				return isNaN(num) ? c : num;
 			});
-			console.log(
-				`[VARIANTS] Filter chrom: ${filter.chrom} converted to ${chromNumbers}`,
-			);
 			matchAnd.push({ chrom: { $in: chromNumbers } });
 		}
 
@@ -276,7 +273,11 @@ export class VariantsService {
 		}
 
 		if (filter?.annotation?.length) {
-			matchAnd.push({ codingEffect: { $in: filter.annotation } });
+			matchAnd.push({
+				codingEffect: {
+					$in: filter.annotation.map((a: string) => new RegExp(`^${a}$`, 'i')),
+				},
+			});
 		}
 
 		if (filter?.classification?.length) {

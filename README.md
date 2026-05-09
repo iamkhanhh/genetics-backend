@@ -1,13 +1,5 @@
 <a id="readme-top"></a>
 
-<!-- PROJECT SHIELDS -->
-<!--
-*** I'm using markdown "reference style" links for readability.
-*** Reference links are enclosed in brackets [ ] instead of parentheses ( ).
-*** See the bottom of this document for the declaration of the reference variables
-*** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
-*** https://www.markdownguide.org/basic-syntax/#reference-style-links
--->
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
@@ -17,14 +9,13 @@
 
 ![a45081_backend](https://socialify.git.ci/iamkhanhh/a45081_backend/image?custom_description=A+Web-Based+Bioinformatics+Tool+for+Genetic+Variant+Annotation+Supporting+Clinical+Applications&description=1&forks=1&issues=1&language=1&name=1&owner=1&pattern=Solid&pulls=1&stargazers=1&theme=Dark)
 
-<!-- PROJECT LOGO -->
 <br />
 <div align="center">
   <a href="https://github.com/iamkhanhh/a45081_backend">
     <img src="https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/genetics.png" alt="Logo">
   </a>
-  
-<h3 align="center">Genetics</h3>
+
+<h3 align="center">Genetics — Clinical Genomics Backend</h3>
 
   <p align="center">
     A Web-Based Bioinformatics Tool for Genetic Variant Annotation Supporting Clinical Applications
@@ -50,9 +41,8 @@
       <a href="#about-the-project">About The Project</a>
       <ul>
         <li><a href="#tech-stack">Tech Stack</a></li>
-      </ul>
-      <ul>
         <li><a href="#features">Features</a></li>
+        <li><a href="#architecture">Architecture</a></li>
       </ul>
     </li>
     <li>
@@ -62,7 +52,9 @@
         <li><a href="#installation">Installation</a></li>
       </ul>
     </li>
-    <li><a href="#usage">Usage</a></li>
+    <li><a href="#environment-variables">Environment Variables</a></li>
+    <li><a href="#api-endpoints">API Endpoints</a></li>
+    <li><a href="#subscription-plans">Subscription Plans</a></li>
     <li><a href="#roadmap">Roadmap</a></li>
     <li><a href="#contact">Contact</a></li>
     <li><a href="#acknowledgments">Acknowledgments</a></li>
@@ -71,17 +63,18 @@
 
 
 
-<!-- ABOUT THE PROJECT -->
 ## About The Project
+
 [![Product Name Screen Shot][product-screenshot]](https://example.com)
 
-A web-based genomics annotation platform that allows researchers, labs, and universities to securely upload FASTQ and VCF files, run Ensembl VEP for variant annotation, and generate interactive biological reports. Built with AWS S3 storage and scalable compute, the platform provides automated pipelines, customizable annotation presets, and comprehensive reports to support genetic research, education, and clinical discovery.
+A production-grade genomics annotation platform built with NestJS. Researchers, labs, and clinicians can upload FASTQ or VCF files, run full variant calling and Ensembl VEP annotation pipelines, explore annotated variants through a rich filter interface, and generate clinical DOCX reports — all secured behind JWT auth and subscription-based usage limits.
+
+The platform uses **two databases in parallel**: MySQL (TypeORM) for relational data (users, workspaces, samples, subscriptions) and MongoDB (Mongoose) for high-volume variant documents (~150 fields, up to 31,000 docs per WGS analysis). Real-time status updates are delivered via **Socket.IO WebSocket**, and payment events via **Server-Sent Events (SSE)**.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ### Tech Stack
 
-* [![Angular][Angular.io]][Angular-url]
 * [![NestJS][NestJS.com]][NestJS-url]
 * [![MySQL][MySQL.com]][MySQL-url]
 * [![MongoDB][MongoDB.com]][MongoDB-url]
@@ -91,119 +84,275 @@ A web-based genomics annotation platform that allows researchers, labs, and univ
 * [![VEP][VEP.com]][VEP-url]
 * [![BCFtools][BCFtools.com]][BCFtools-url]
 * [![JWT][JWT.io]][JWT-url]
-* [![Bootstrap][Bootstrap.com]][Bootstrap-url]
+* [![Redis][Redis.com]][Redis-url]
+* [![OpenAI][OpenAI.com]][OpenAI-url]
+
+| Layer | Technology |
+|---|---|
+| Framework | NestJS 10.3.10 + TypeScript |
+| Relational DB | MySQL 8.0 via TypeORM 0.3.20 (25 migrations) |
+| Document DB | MongoDB 4.2 via Mongoose 8.5.1 |
+| Cache / Queue | Redis 8 via ioredis 5.10.1 |
+| Auth | JWT (`@nestjs/jwt` 10.2.0) + Passport.js |
+| File Storage | AWS S3 (multipart, presigned URLs) |
+| Bioinformatics | Ensembl VEP v114, BWA-MEM2, GATK HaplotypeCaller |
+| AI | OpenAI API (chatbot + report summaries) |
+| Payments | PayOS (`@payos/node` 2.0.5) |
+| Real-time | Socket.IO (WebSocket) + SSE |
+| Email | Nodemailer + Handlebars templates |
+| Reports | docxtemplater (DOCX templates) |
+| API Docs | Swagger (`@nestjs/swagger` 8.1.0) at `/api` |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ### Features
-* Secure uploads to S3: Client‑side direct uploads via pre‑signed URLs, checksum verification, and resumable transfers (Tus/Multipart).
-* File types: FASTQ (R1/R2 paired), VCF.
-* Automated pipeline:
-    - FASTQ → (optional) alignment & variant calling (BWA‑MEM2 + GATK or DRAGEN* pluggable) → VCF.
-    - VCF → VEP annotation with configurable plugins, cache builds, and custom resources.
-* Annotation presets: WES/WGS; cache build selection (e.g., GRCh37, GRCh38).
-* Report generation: Per‑sample and cohort reports (PDF): pathogenicity, gene summaries, and top variants of interest.
-* Queryable variant warehouse: Filter by gene, transcript, consequence, clinvar, gnomAD AF, impact, zygosity, inheritance, and custom tags.
-* Notifications: Email when sign up start, succeed, or fail.
-* Scalable workers: Queue‑based job orchestration with autoscaling compute (AWS Fargate/ECS or EC2 ASG); spot‑friendly.
-* Security & compliance: S3 SSE‑KMS, signed URLs, least‑privilege IAM, IP allowlists, audit logs, and optional PHI/PII redaction.
+
+- **Dual-pipeline variant analysis**
+  - VCF → VEP annotation → MongoDB import
+  - FASTQ → BWA-MEM2 alignment → GATK MarkDuplicates → BQSR → HaplotypeCaller → VEP → MongoDB import
+- **Rich variant filtering** — filter by chromosome, gene, coding effect (annotation), ClinVar classification, allele fraction, gnomAD frequency, and read depth
+- **Pharmacogenomics (PGx)** — dedicated PGx variant queries with drug-gene interaction data
+- **Clinical report generation** — select variants, auto-generate DOCX report with OpenAI-written summaries, upload to S3
+- **AI chatbot** — OpenAI-powered variant interpretation with per-conversation message history in MongoDB
+- **Subscription tiers** — Basic (free), Standard, and Premium plans enforced per-day via `UsageLimitGuard`
+- **PayOS payment flow** — create checkout link, SSE stream for real-time payment confirmation, auto-activate subscription
+- **Real-time updates** — WebSocket events on analysis/sample status changes; SSE for payment events
+- **S3 multipart uploads** — resumable large file uploads with presigned URLs
+- **Secure auth** — JWT in HTTP-only cookie (100-day expiry), global `AuthGuard`, `@Public()` opt-out
+- **Rate limiting** — global throttle: 100 requests / 60 seconds
+- **Redis caching** — pattern-based cache invalidation; variant query results cached 30 min
+- **Email notifications** — Nodemailer for account activation, status updates (Handlebars templates)
+- **Cross-entity search** — global search across workspaces, samples, and analyses
+- **Swagger docs** — auto-generated interactive API documentation at `/api`
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<!-- GETTING STARTED -->
-## Getting Started
+### Architecture
 
-Make sure you meet the requirements and complete each step below.
+```
+User uploads VCF/FASTQ
+        │
+        ▼
+Backend creates Analysis record (status = QUEUING / FASTQ_QUEUING)
+        │
+        ▼ (cron @30s)
+vcf-analyzer or fastq-analyzer polls backend for pending analyses
+        │
+        ▼
+Worker processes file, POSTs status updates back to backend
+        │
+        ▼
+Backend emits WebSocket event → Angular frontend updates in real-time
+```
+
+**Analysis status flow:**
+```
+VCF  → QUEUING(0) → ANALYZING(1) → ANALYZED(2) → VEP_ANALYZED(4) → IMPORTING(5) → ANALYZED
+FASTQ → FASTQ_QUEUING(6) → FASTQ_ANALYZING(7) → ANALYZED(2) → VEP_ANALYZED(4)
+                                      ↓ on error
+                               ERROR(3) / FASTQ_ERROR(8)
+```
+
+**Module map:**
+
+| Module | Route | Responsibility |
+|---|---|---|
+| `auth/` | — | JWT strategy, login, registration, email activation |
+| `users/` | `/users` | User CRUD, profile, password management |
+| `workspaces/` | `/workspaces` | Project containers for analyses |
+| `samples/` | `/samples` | Sequencing sample management |
+| `uploads/` | `/uploads` | S3 multipart upload orchestration |
+| `analysis/` | `/analysis` | Analysis job lifecycle + WebSocket events |
+| `variants/` | `/variants` | MongoDB variant queries + PGx |
+| `vep/` | `/vep` | Proxy trigger to vcf-analyzer worker |
+| `variant-calling/` | `/variant-calling` | Proxy trigger to fastq-analyzer worker |
+| `patient-information/` | `/patient-information` | Patient demographics and phenotype |
+| `report/` | `/report` | DOCX report generation + S3 upload |
+| `chatbot/` | `/chatbot` | OpenAI variant interpretation chat |
+| `payments/` | `/payments` | PayOS checkout, subscriptions, SSE |
+| `pipelines/` | `/pipelines` | Analysis pipeline version management |
+| `search/` | `/search` | Cross-entity global search |
+| `account/` | `/account` | Dashboard stats, profile summary |
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+## Getting Started
 
 ### Prerequisites
 
-This is an example of how to list things you need to use the software and how to install them.
-* npm
+- **Node.js** ≥ 20 and npm
   ```sh
-  npm install npm@20.11.1 -g
+  node -v   # should be 20+
   ```
-* bcf-tools, vcf-tools and bed-tools
+- **Docker** and Docker Compose (for MySQL, MongoDB, Redis)
+  ```sh
+  docker -v
+  ```
+- **db-migrate** (SQL migration runner)
+  ```sh
+  npm install -g db-migrate db-migrate-mysql
+  ```
+- **Ensembl VEP** (offline annotation) — [installation guide](https://asia.ensembl.org/info/docs/tools/vep/script/vep_download.html)
+- **BCFtools / VCFtools / BEDtools** (VCF processing utilities)
   ```sh
   sudo apt update && sudo apt install -y bcftools vcftools bedtools
   ```
-* VEP (please go to the VEP official website)
-  ```sh
-  git clone https://github.com/Ensembl/ensembl-vep
-  ```
-* db-migrate
-  ```sh
-  npm install -g db-migrate
-  ```
+- **BWA-MEM2** and **GATK 4** (required only for FASTQ pipeline)
 
 ### Installation
 
 1. Clone the repo
    ```sh
    git clone https://github.com/iamkhanhh/a45081_backend.git
-   ```
-2. Go to the repo folder
-   ```sh
    cd a45081_backend
    ```
-3. Install NPM packages
+
+2. Install dependencies
    ```sh
    npm install
    ```
-4. Change database configuration in database.json file
-   ```s
-   {
-        "dev": {
-            "driver": "mysql",
-            "host": <host>,
-            "port": <port>,
-            "user": <username>,
-            "password": <password>,
-            "database": <database>,
-            "charset": "utf8",
-            "collation": "utf8_unicode_ci"
-        }
-    }
+
+3. Start infrastructure (MySQL, MongoDB, Redis)
+   ```sh
+   docker compose up -d
    ```
-5. Migration database
+
+4. Create your environment file (copy from example and fill in values)
+   ```sh
+   cp .env.example .env.development
+   # then edit .env.development with your values
+   ```
+
+5. Configure `database.json` for SQL migrations
+   ```json
+   {
+     "dev": {
+       "driver": "mysql",
+       "host": "<DB_HOST>",
+       "port": "<DB_PORT>",
+       "user": "<DB_USERNAME>",
+       "password": "<DB_PASSWORD>",
+       "database": "<DB_DATABASE>",
+       "charset": "utf8",
+       "collation": "utf8_unicode_ci"
+     }
+   }
+   ```
+
+6. Run database migrations
    ```sh
    ./node_modules/.bin/db-migrate up
    ```
-6. Run project
+
+7. Start the development server
    ```sh
    npm run start:dev
    ```
-<p>After all the steps, you will see the below screen:</p>
-<img src="https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/run_backend_success.jpeg" alt="Logo">
+
+The server starts on port `3000` by default. Swagger UI is available at `http://localhost:3000/api`.
+
+<p>After a successful start you should see:</p>
+<img src="https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/run_backend_success.jpeg" alt="Server start success">
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
 
-<!-- USAGE EXAMPLES -->
-## Usage
+## Environment Variables
 
-...
+Config is loaded from `.env.${NODE_ENV}` — e.g. `.env.development` or `.env.production`. See `.env.example` for the full template.
 
-_For more examples, please refer to the [Documentation](https://example.com)_
+| Category | Variable(s) |
+|---|---|
+| App | `PORT`, `ALLOWED_ORIGINS`, `VCF_IOBIO_HOST`, `IGV_HOST` |
+| MySQL | `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE` |
+| MongoDB | `MONGO_DB_HOST`, `MONGO_DB_PORT`, `MONGO_DB_DATABASE`, `MONGO_DB_PREFIX`, `MONGO_CHAT_COLLECTION`, `MONGO_IMPORT_CMD` |
+| Redis | `REDIS_HOST`, `REDIS_PORT` |
+| JWT | `JWT_SECRET`, `JWT_ACCESS_TOKEN_EXPIRED` (e.g. `"100d"`) |
+| Email | `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_HOST` |
+| AWS S3 | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET`, `AWS_REGION` |
+| Storage paths | `MOUNT_FOLDER`, `EXPORT_FOLDER`, `ANALYSIS_FOLDER`, `UPLOAD_FOLDER`, `FASTA_FOLDER` |
+| External APIs | `VEP_TOKEN`, `FASTQ_TOKEN`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `GENEBE_USERNAME`, `GENEBE_API_KEY` |
+| Payments | `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY` |
+
+> **Never commit `.env.*` files.** They are git-ignored by default.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
 
-<!-- ROADMAP -->
+## API Endpoints
+
+All routes require JWT authentication (cookie-based) unless marked `@Public()`. Swagger UI at `/api` lists every endpoint with request/response schemas.
+
+| Prefix | Description |
+|---|---|
+| `POST /auth/login` | Login, set HTTP-only JWT cookie |
+| `POST /auth/register` | Register + send activation email |
+| `GET /users` | User management |
+| `GET /workspaces` | Workspace CRUD |
+| `GET /samples` | Sample management |
+| `POST /uploads` | Initiate S3 multipart upload |
+| `GET /analysis` | Analysis job management |
+| `GET /variants` | Variant queries with filtering |
+| `GET /variants/pgx` | Pharmacogenomics variants |
+| `POST /vep` | Trigger VEP annotation |
+| `POST /variant-calling` | Trigger FASTQ pipeline |
+| `GET /patient-information` | Patient records |
+| `POST /report` | Generate clinical report |
+| `POST /chatbot` | AI variant interpretation |
+| `POST /payments` | Create PayOS checkout |
+| `GET /payments/sse` | SSE stream for payment status |
+| `GET /pipelines` | Pipeline versions |
+| `GET /search` | Cross-entity search |
+| `GET /account` | User dashboard stats |
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+## Subscription Plans
+
+Usage limits are enforced per-day via `UsageLimitGuard`. Plans are stored in MySQL (`SubscriptionPlan` entity).
+
+| Plan | Price | Daily Uploads | Daily Analyses | QC | Reports |
+|---|---|---|---|---|---|
+| **Basic** | Free | 3 | 3 | No | No |
+| **Standard** | Paid | 10 | 10 | Yes | Yes |
+| **Premium** | Paid | Unlimited | Unlimited | Yes | Yes |
+
+Payment flow: create checkout link via PayOS → wait on SSE stream → webhook confirms payment → `UserSubscription` activated automatically.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
 ## Roadmap
 
-- [ ] Sign In/Sign Up
-- [ ] Change personal information and password
-- [ ] Upload Sample (FastQ/VCF)
-- [ ] Create Workspace
-- [ ] Create Analysis
-    - [ ] Quality Control
-    - [ ] List all Variants and filter
-    - [ ] Create report with specific variants
-    - [ ] Update patient information
+- [x] Sign In / Sign Up with email activation
+- [x] JWT authentication (HTTP-only cookie)
+- [x] Workspace, Sample, and Analysis management
+- [x] VCF upload and VEP annotation pipeline
+- [x] FASTQ upload and full variant calling pipeline (BWA-MEM2 + GATK)
+- [x] Rich variant filtering (gene, chromosome, effect, ClinVar, gnomAD, AF, depth)
+- [x] Pharmacogenomics (PGx) variant queries
+- [x] Clinical DOCX report generation with OpenAI summaries
+- [x] AI chatbot for variant interpretation (OpenAI)
+- [x] Subscription plans (Basic / Standard / Premium) with daily limits
+- [x] PayOS payment integration with SSE status stream
+- [x] Real-time WebSocket updates for analysis/sample status
+- [x] Redis caching with pattern-based invalidation
+- [x] S3 multipart file uploads with presigned URLs
+- [x] Global search across workspaces, samples, analyses
+- [x] Patient information management
+- [x] Swagger API documentation
+- [ ] IGV.js integration for in-browser variant visualization
+- [ ] Cohort-level variant aggregation and statistics
+- [ ] Variant tagging and custom annotation presets
 
-See the [open issues](https://github.com/iamkhanhh/a45081_backend/issues) for a full list of proposed features (and known issues).
+See the [open issues](https://github.com/iamkhanhh/a45081_backend/issues) for a full list of proposed features and known bugs.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -213,10 +362,9 @@ See the [open issues](https://github.com/iamkhanhh/a45081_backend/issues) for a 
   <img src="https://contrib.rocks/image?repo=iamkhanhh/a45081_backend" alt="contrib.rocks image" />
 </a>
 
-<!-- CONTACT -->
 ## Contact
 
-Nguyen Quoc Khanh - khanh9102004@gmail.com
+Nguyen Quoc Khanh — khanh9102004@gmail.com
 
 Project Link: [https://github.com/iamkhanhh/a45081_backend](https://github.com/iamkhanhh/a45081_backend)
 
@@ -224,20 +372,22 @@ Project Link: [https://github.com/iamkhanhh/a45081_backend](https://github.com/i
 
 
 
-<!-- ACKNOWLEDGMENTS -->
 ## Acknowledgments
 
 * [Ensembl VEP](https://asia.ensembl.org/info/docs/tools/vep/index.html)
 * [NestJS](https://docs.nestjs.com/)
+* [BCFtools](https://samtools.github.io/bcftools/bcftools.html)
+* [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2)
+* [GATK](https://gatk.broadinstitute.org/)
+* [PayOS](https://payos.vn/)
+* [OpenAI API](https://platform.openai.com/docs/)
 * [Angular](https://v17.angular.io/docs)
-* [BCF Tools](https://samtools.github.io/bcftools/bcftools.html)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 [contributors-shield]: https://img.shields.io/github/contributors/iamkhanhh/a45081_backend.svg?style=for-the-badge
 [contributors-url]: https://github.com/iamkhanhh/a45081_backend/graphs/contributors
 [forks-shield]: https://img.shields.io/github/forks/iamkhanhh/a45081_backend.svg?style=for-the-badge
@@ -251,8 +401,6 @@ Project Link: [https://github.com/iamkhanhh/a45081_backend](https://github.com/i
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/iamkhanh
 [product-screenshot]: https://genetics-s3-prod.s3.ap-southeast-1.amazonaws.com/public/genetic_screenshot.jpeg
-[Angular.io]: https://img.shields.io/badge/Angular-DD0031?style=for-the-badge&logo=angular&logoColor=white
-[Angular-url]: https://angular.io/
 
 [NestJS.com]: https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white
 [NestJS-url]: https://nestjs.com/
@@ -281,5 +429,8 @@ Project Link: [https://github.com/iamkhanhh/a45081_backend](https://github.com/i
 [JWT.io]: https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white
 [JWT-url]: https://jwt.io/
 
-[Bootstrap.com]: https://img.shields.io/badge/Bootstrap-7952B3?style=for-the-badge&logo=bootstrap&logoColor=white
-[Bootstrap-url]: https://getbootstrap.com/
+[Redis.com]: https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white
+[Redis-url]: https://redis.io/
+
+[OpenAI.com]: https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white
+[OpenAI-url]: https://platform.openai.com/
