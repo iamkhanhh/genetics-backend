@@ -42,10 +42,11 @@ export class VariantReportedDto {
 		description: 'Population frequency from gAD (ALL, AFR, AMR)',
 	})
 	@ApiProperty({
-		example: [0.00167921, 0.000123047, 0.00104076],
+		example: '0.00167921 / 0.000123047 / 0.00104076',
 		description: 'Population frequencies (ALL, AFR, AMR)',
 	})
-	gad: number[];
+	@IsString()
+	gad: string;
 
 	@ApiProperty({
 		example: 'pathogenic',
