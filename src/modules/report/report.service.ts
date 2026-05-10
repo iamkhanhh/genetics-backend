@@ -72,9 +72,10 @@ export class ReportService {
 		const formattedVariants: ReportVariantData[] = createReportDto.variants.map(
 			(v) => ({
 				gene: v.gene,
+				transcript: v.transcript,
 				change: v.cdna,
-				zygosity: 'N/A',
-				inheritance: 'N/A',
+				coverage: v.coverage,
+				gad: v.gad.split('/').map((value) => ({ value })),
 				classification: v.classification,
 			}),
 		);

@@ -1,7 +1,8 @@
 export interface ReportVariantData {
 	gene: string;
+	transcript: string;
 	change: string;
-	zygosity: string;
-	inheritance: string;
+	coverage: string;
+	gad: { value: string }[];
 	classification: string;
 }

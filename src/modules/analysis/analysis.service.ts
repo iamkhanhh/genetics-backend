@@ -511,7 +511,7 @@ export class AnalysisService {
 								`${this.configService.get<string>('FASTA_FOLDER')}/hg19.fa`,
 							)
 						: await this.s3Provider.generateDownloadUrl(
-								`${this.configService.get<string>('FASTA_FOLDER')}/GRCh38.fa`,
+								`${this.configService.get<string>('FASTA_FOLDER')}/hg38.fa`,
 							),
 				fastaIndexUrl:
 					analysis.assembly == 'hg19'
@@ -519,7 +519,7 @@ export class AnalysisService {
 								`${this.configService.get<string>('FASTA_FOLDER')}/hg19.fa.fai`,
 							)
 						: await this.s3Provider.generateDownloadUrl(
-								`${this.configService.get<string>('FASTA_FOLDER')}/GRCh38.fa.fai`,
+								`${this.configService.get<string>('FASTA_FOLDER')}/hg38.fa.fai`,
 							),
 				geneUrl:
 					analysis.assembly == 'hg19'
