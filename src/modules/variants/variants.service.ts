@@ -419,6 +419,16 @@ export class VariantsService {
 			VAR_SCORE: '$VAR_SCORE',
 			HGVSc: '$varHGVSc',
 			HGVSp: '$varHGVSp',
+			am_pathogenicity: '$am_pathogenicity',
+			am_class: '$am_class',
+			SpliceAI_DP_AG: '$SpliceAI_DP_AG',
+			SpliceAI_DP_AL: '$SpliceAI_DP_AL',
+			SpliceAI_DP_DG: '$SpliceAI_DP_DG',
+			SpliceAI_DP_DL: '$SpliceAI_DP_DL',
+			SpliceAI_DS_AG: '$SpliceAI_DS_AG',
+			SpliceAI_DS_AL: '$SpliceAI_DS_AL',
+			SpliceAI_DS_DG: '$SpliceAI_DS_DG',
+			SpliceAI_DS_DL: '$SpliceAI_DS_DL',
 		};
 	}
 
@@ -509,6 +519,265 @@ export class VariantsService {
 			console.log('VariantsService@deleteSelectedVariant:', error);
 			throw new BadRequestException('Error!');
 		}
+	}
+
+	async getClinicalSummary(analysisId: number) {
+		const data = await this.cacheProvider.getOrSet(
+			`clinical-summary:${analysisId}`,
+			60 * 60,
+			async () => {
+				const collection = await this.getVariantCollection(analysisId);
+
+				const [stats, rawVariants] = await Promise.all([
+					this.aggregateClinsigStats(collection),
+					this.fetchSignificantVariants(collection),
+				]);
+
+				const uniqueGenes = [
+					...new Set(rawVariants.map((v: any) => v.gene).filter(Boolean)),
+				] as string[];
+				const omimMap = await this.batchQueryOmimByGenes(uniqueGenes);
+
+				const significantVariants = rawVariants
+					.map((v: any) => ({
+						...v,
+						diseases: omimMap[v.gene] || [],
+						clinicalScore: this.calcClinicalScore(v),
+					}))
+					.filter((v: any) => v.diseases.length > 0)
+					.sort((a: any, b: any) => b.clinicalScore - a.clinicalScore);
+
+				const diseaseSuggestions =
+					this.buildDiseaseSuggestions(significantVariants);
+
+				return { stats, significantVariants, diseaseSuggestions };
+			},
+		);
+
+		return {
+			status: 'success',
+			message: 'Get clinical summary successfully',
+			data,
+		};
+	}
+
+	private async getVariantCollection(analysisId: number) {
+		const db = await this.mongodbProvider.mongodbConnect();
+		const prefix = this.configService.get<string>('MONGO_DB_PREFIX');
+		const collection = db.collection(`${prefix}_${analysisId}`);
+		if (!collection)
+			throw new BadRequestException('Variant collection not found');
+		return collection;
+	}
+
+	private async aggregateClinsigStats(
+		collection: any,
+	): Promise<Record<string, number>> {
+		const CLINSIG_KEYS = [
+			'pathogenic',
+			'likely pathogenic',
+			'uncertain significance',
+			'likely benign',
+			'benign',
+			'drug response',
+		];
+
+		const statsRaw = await collection
+			.aggregate([{ $group: { _id: '$CLINSIG_FINAL', count: { $sum: 1 } } }])
+			.toArray();
+
+		const stats: Record<string, number> = {};
+		let total = 0;
+		for (const key of CLINSIG_KEYS) {
+			const found = statsRaw.find((s: any) => s._id === key);
+			stats[key] = found ? found.count : 0;
+			total += stats[key];
+		}
+		const otherCount = statsRaw
+			.filter((s: any) => !CLINSIG_KEYS.includes(s._id) && s._id !== null)
+			.reduce((acc: number, s: any) => acc + s.count, 0);
+		stats['other'] = otherCount;
+		stats['total'] = total + otherCount;
+		return stats;
+	}
+
+	private async fetchSignificantVariants(collection: any): Promise<any[]> {
+		return collection
+			.aggregate([
+				{
+					$match: {
+						CLINSIG_FINAL: { $in: ['pathogenic', 'likely pathogenic'] },
+					},
+				},
+				{
+					$project: {
+						_id: 0,
+						gene: '$gene',
+						cnomen: '$cNomen',
+						pnomen: '$pNomen',
+						classification: '$CLINSIG_FINAL',
+						consequence: '$codingEffect',
+						impact: '$IMPACT',
+						gnomad: '$gnomAD_exome_ALL',
+						cadd: '$CADD_PHRED',
+						polyphen: '$Polyphen2',
+						sift: '$SIFT',
+						revel: '$REVEL',
+						amPathogenicity: '$am_pathogenicity',
+						amClass: '$am_class',
+						spliceDS_AG: '$SpliceAI_DS_AG',
+						spliceDS_AL: '$SpliceAI_DS_AL',
+						spliceDS_DG: '$SpliceAI_DS_DG',
+						spliceDS_DL: '$SpliceAI_DS_DL',
+						chrom: '$chrom',
+						pos: '$inputPos',
+						ref: '$REF',
+						alt: '$ALT',
+						transcript: '$transcript',
+						clinvarId: '$Clinvar_VARIANT_ID',
+						clinsigPriority: '$CLINSIG_PRIORITY',
+					},
+				},
+				{ $sort: { clinsigPriority: 1 } },
+				{ $limit: 50 },
+			])
+			.toArray();
+	}
+
+	private async batchQueryOmimByGenes(
+		genes: string[],
+	): Promise<Record<string, { pheno_name: string; pheno_omim: string }[]>> {
+		if (genes.length === 0) return {};
+
+		const rows = await this.geneClinicalSynopsisRepository
+			.createQueryBuilder('g')
+			.select([
+				'g.gene_name AS gene_name',
+				'g.pheno_name AS pheno_name',
+				'g.pheno_omim AS pheno_omim',
+			])
+			.where('g.gene_name IN (:...genes)', { genes })
+			.getRawMany();
+
+		const map: Record<string, { pheno_name: string; pheno_omim: string }[]> =
+			{};
+		for (const row of rows) {
+			if (!map[row.gene_name]) map[row.gene_name] = [];
+			map[row.gene_name].push({
+				pheno_name: row.pheno_name,
+				pheno_omim: row.pheno_omim || '',
+			});
+		}
+		return map;
+	}
+
+	private calcClinicalScore(variant: any): number {
+		let score = 0;
+
+		const cadd = parseFloat(variant.cadd);
+		if (!isNaN(cadd)) {
+			if (cadd >= 30) score += 3;
+			else if (cadd >= 20) score += 2;
+			else if (cadd >= 10) score += 1;
+		}
+
+		if (variant.impact === 'HIGH') score += 3;
+		else if (variant.impact === 'MODERATE') score += 1;
+
+		const gnomad = parseFloat(variant.gnomad);
+		if (isNaN(gnomad) || gnomad === 0) score += 2;
+		else if (gnomad < 0.001) score += 1;
+
+		const polyphen = parseFloat(variant.polyphen);
+		if (!isNaN(polyphen)) {
+			if (polyphen > 0.908) score += 2;
+			else if (polyphen > 0.446) score += 1;
+		}
+
+		const sift = parseFloat(variant.sift);
+		if (!isNaN(sift) && sift < 0.05) score += 1;
+
+		const revel = parseFloat(variant.revel);
+		if (!isNaN(revel)) {
+			if (revel >= 0.75) score += 2;
+			else if (revel >= 0.5) score += 1;
+		}
+
+		if (variant.amClass === 'likely_pathogenic') score += 2;
+		else if (variant.amClass === 'ambiguous') score += 1;
+
+		const spliceScores = [
+			parseFloat(variant.spliceDS_AG),
+			parseFloat(variant.spliceDS_AL),
+			parseFloat(variant.spliceDS_DG),
+			parseFloat(variant.spliceDS_DL),
+		].filter((n) => !isNaN(n));
+		if (spliceScores.length > 0) {
+			const maxSplice = Math.max(...spliceScores);
+			if (maxSplice >= 0.5) score += 2;
+			else if (maxSplice >= 0.2) score += 1;
+		}
+
+		return score;
+	}
+
+	private buildDiseaseSuggestions(variants: any[]): any[] {
+		const SEVERITY_ORDER: Record<string, number> = {
+			pathogenic: 1,
+			'likely pathogenic': 2,
+		};
+
+		const diseaseMap: Record<
+			string,
+			{
+				pheno_name: string;
+				pheno_omim: string;
+				genes: Set<string>;
+				variantCount: number;
+				maxSeverity: string;
+				maxSeverityOrder: number;
+			}
+		> = {};
+
+		for (const variant of variants) {
+			for (const disease of variant.diseases) {
+				if (!disease.pheno_name) continue;
+				const key = disease.pheno_name;
+				if (!diseaseMap[key]) {
+					diseaseMap[key] = {
+						pheno_name: disease.pheno_name,
+						pheno_omim: disease.pheno_omim,
+						genes: new Set(),
+						variantCount: 0,
+						maxSeverity: variant.classification,
+						maxSeverityOrder: SEVERITY_ORDER[variant.classification] ?? 99,
+					};
+				}
+				diseaseMap[key].genes.add(variant.gene);
+				diseaseMap[key].variantCount++;
+				const order = SEVERITY_ORDER[variant.classification] ?? 99;
+				if (order < diseaseMap[key].maxSeverityOrder) {
+					diseaseMap[key].maxSeverity = variant.classification;
+					diseaseMap[key].maxSeverityOrder = order;
+				}
+			}
+		}
+
+		return Object.values(diseaseMap)
+			.map((d) => ({
+				pheno_name: d.pheno_name,
+				pheno_omim: d.pheno_omim,
+				genes: Array.from(d.genes),
+				variant_count: d.variantCount,
+				max_severity: d.maxSeverity,
+			}))
+			.sort((a, b) => {
+				const sa = SEVERITY_ORDER[a.max_severity] ?? 99;
+				const sb = SEVERITY_ORDER[b.max_severity] ?? 99;
+				if (sa !== sb) return sa - sb;
+				return b.variant_count - a.variant_count;
+			})
+			.slice(0, 20);
 	}
 
 	makeClinsigPriority() {

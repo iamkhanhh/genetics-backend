@@ -89,4 +89,15 @@ export class VariantsController {
 	) {
 		return this.variantsService.selectVariantToReport(id, body);
 	}
+
+	@Get('clinical-summary/:id')
+	@ApiOperation({ summary: 'Get clinical summary for an analysis' })
+	@ApiParam({ name: 'id', example: 1, description: 'Analysis ID' })
+	@ApiResponse({
+		status: 200,
+		description: 'Clinical summary retrieved successfully',
+	})
+	getClinicalSummary(@Param('id', ParseIntPipe) id: number) {
+		return this.variantsService.getClinicalSummary(id);
+	}
 }
