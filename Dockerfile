@@ -40,6 +40,7 @@ RUN npm install --legacy-peer-deps --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/database.json ./database.json
 COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/src/mail/templates ./src/mail/templates
 
 EXPOSE 3000
 
