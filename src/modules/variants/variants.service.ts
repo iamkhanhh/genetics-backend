@@ -544,7 +544,7 @@ export class VariantsService {
 						diseases: omimMap[v.gene] || [],
 						clinicalScore: this.calcClinicalScore(v),
 					}))
-					.filter((v: any) => v.diseases.length > 0)
+					.filter((v: any) => v.diseases.length > 0 && v.clinicalScore > 0)
 					.sort((a: any, b: any) => b.clinicalScore - a.clinicalScore);
 
 				const diseaseSuggestions =
