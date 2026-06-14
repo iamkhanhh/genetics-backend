@@ -84,7 +84,7 @@ jobs:
               --restart unless-stopped \
               -p 3000:3000 \
               --env-file /home/${{ secrets.SERVER_USER }}/KLTN/genetics-backend/.env \
-              -v /home/${{ secrets.SERVER_USER }}/KLTN/genetics-backend/genetics-s3:/app/genetics-s3 \
+              -v /home/${{ secrets.SERVER_USER }}/genetics-s3:/app/genetics-s3 \
               ${{ env.IMAGE_NAME }}:latest
 
             docker image prune -f
