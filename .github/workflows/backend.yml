@@ -63,6 +63,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT }}
           script: |
+            set -e
+
             docker pull ${{ env.IMAGE_NAME }}:latest
 
             # Tạo network nếu chưa có
@@ -81,8 +83,8 @@ jobs:
               --network genetics-network \
               --restart unless-stopped \
               -p 3000:3000 \
-              --env-file /home/${{ secrets.SERVER_USER }}/genetics/.env \
-              -v /home/${{ secrets.SERVER_USER }}/genetics-s3:/app/genetics-s3 \
+              --env-file /home/${{ secrets.SERVER_USER }}/KLTN/genetics-backend/.env \
+              -v /home/${{ secrets.SERVER_USER }}/KLTN/genetics-backend/genetics-s3:/app/genetics-s3 \
               ${{ env.IMAGE_NAME }}:latest
 
             docker image prune -f
